@@ -49,3 +49,10 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     valid_until  TIMESTAMP    NOT NULL,
     revoked      BOOLEAN      NOT NULL DEFAULT FALSE
 );
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    email        VARCHAR(255) PRIMARY KEY,
+    token        UUID        NOT NULL,
+    valid_until  TIMESTAMP    NOT NULL,
+    revoked      BOOLEAN      NOT NULL DEFAULT FALSE
+);

@@ -162,10 +162,12 @@ func (x *RequestPasswordChangeRequest) GetEmail() string {
 }
 
 type RequestPasswordChangeResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	Success                 bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Token                   string                 `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	ValidUntilUnixTimestamp int64                  `protobuf:"varint,3,opt,name=valid_until_unix_timestamp,json=validUntilUnixTimestamp,proto3" json:"valid_until_unix_timestamp,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *RequestPasswordChangeResponse) Reset() {
@@ -203,6 +205,20 @@ func (x *RequestPasswordChangeResponse) GetSuccess() bool {
 		return x.Success
 	}
 	return false
+}
+
+func (x *RequestPasswordChangeResponse) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *RequestPasswordChangeResponse) GetValidUntilUnixTimestamp() int64 {
+	if x != nil {
+		return x.ValidUntilUnixTimestamp
+	}
+	return 0
 }
 
 type ValidateTokenRequest struct {
@@ -633,9 +649,11 @@ const file_user_user_proto_rawDesc = "" +
 	"\x16ChangePasswordResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\"4\n" +
 	"\x1cRequestPasswordChangeRequest\x12\x14\n" +
-	"\x05email\x18\x01 \x01(\tR\x05email\"9\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\"\x8c\x01\n" +
 	"\x1dRequestPasswordChangeResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\",\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\x12;\n" +
+	"\x1avalid_until_unix_timestamp\x18\x03 \x01(\x03R\x17validUntilUnixTimestamp\",\n" +
 	"\x14ValidateTokenRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\"-\n" +
 	"\x15ValidateTokenResponse\x12\x14\n" +

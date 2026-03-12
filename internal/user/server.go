@@ -13,6 +13,7 @@ import (
 	userpb "banka-raf/gen/user"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -143,6 +144,51 @@ func (s *Server) Refresh(ctx context.Context, req *userpb.RefreshRequest) (*user
 	}
 
 	return &userpb.RefreshResponse{AccessToken: newAccessToken, RefreshToken: newSignedToken}, nil
+}
+
+func (s *Server) ChangePassword(ctx context.Context, req *userpb.ChangePasswordRequest) (*userpb.ChangePasswordResponse, error) {
+	tx, err := s.database.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("starting transaction: %w", err)
+	}
+	defer tx.Rollback()
+	token, err := uuid.Parse(req.ResetToken)
+	if err != nil {
+		return nil, err
+	}
+	email, err := s.ConsumePasswordResetToken(tx, token)
+	if err != nil {
+		return nil, err
+	}
+
+	hasher := sha256.New()
+	hasher.Write([]byte(req.NewPassword))
+	hashedPassword := hasher.Sum(nil)
+
+	s.SetPasswordForEmail(tx, *email, hashedPassword)
+
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("committing transaction: %w", err)
+	}
+
+	return &userpb.ChangePasswordResponse{Success: true}, nil
+}
+
+func (s *Server) RequestPasswordChange(ctx context.Context, req *userpb.RequestPasswordChangeRequest) (*userpb.RequestPasswordChangeResponse, error) {
+	email := req.Email
+	now := time.Now()
+	valid_until := now.Add(time.Minute * 15)
+	uuid := uuid.New()
+	err := s.InsertPasswordResetToken(email, uuid, valid_until)
+	if err != nil {
+		return nil, err
+	}
+
+	return &userpb.RequestPasswordChangeResponse{
+		Success:                 true,
+		Token:                   uuid.String(),
+		ValidUntilUnixTimestamp: valid_until.Unix(),
+	}, nil
 }
 
 func (s *Server) Login(ctx context.Context, req *userpb.LoginRequest) (*userpb.LoginResponse, error) {

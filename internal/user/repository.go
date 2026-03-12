@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 type User struct {
@@ -89,4 +90,58 @@ func (s *Server) InsertRefreshToken(token string) error {
 	s.database.Exec(query, email, hashed_token, expiry.Time)
 
 	return nil
+}
+
+func setCustomerPassword(tx *sql.Tx, email string, hashed_password []byte) {
+	query := `
+		UPDATE clients
+		SET password = $1
+		WHERE email = $2
+	`
+	tx.Exec(query, hashed_password, email)
+}
+
+func setEmployeePassword(tx *sql.Tx, email string, hashed_password []byte) {
+	query := `
+		UPDATE employees
+		SET password = $1
+		WHERE email = $2
+	`
+	tx.Exec(query, hashed_password, email)
+}
+
+func (s *Server) SetPasswordForEmail(tx *sql.Tx, email string, hashed_password []byte) {
+	setCustomerPassword(tx, email, hashed_password)
+	setEmployeePassword(tx, email, hashed_password)
+}
+
+func (s *Server) ConsumePasswordResetToken(tx *sql.Tx, uuid uuid.UUID) (*string, error) {
+	query := `
+		UPDATE password_reset_tokens
+		SET revoked = TRUE
+		WHERE token = $1 AND now() < valid_until AND revoked = FALSE
+		RETURNING email;
+	`
+
+	var email string
+
+	err := tx.QueryRow(query, uuid).Scan(&email)
+	if err != nil {
+		return nil, err
+	}
+
+	// if affectedRows != 1 {
+	// 	return fmt.Errorf("changed more than one row. this should never happen (((")
+	// }
+	return &email, nil
+}
+
+func (s *Server) InsertPasswordResetToken(email string, uuid uuid.UUID, valid_until time.Time) error {
+	query := `
+		INSERT INTO password_reset_tokens VALUES ($1, $2, $3, FALSE)
+		ON CONFLICT (email) DO UPDATE SET (token, valid_until, revoked) = (excluded.token, excluded.valid_until, excluded.revoked)
+	`
+
+	_, err := s.database.Exec(query, email, uuid, valid_until)
+	return err
 }

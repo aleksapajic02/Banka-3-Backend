@@ -29,6 +29,8 @@ message RequestPasswordChangeRequest {
 
 message RequestPasswordChangeResponse {
   bool success = 1;
+  string token = 2;
+  int64 valid_until_unix_timestamp = 3;
 }
 
 message ValidateTokenRequest {
