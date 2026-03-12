@@ -10,6 +10,25 @@ service UserService {
   rpc Refresh(RefreshRequest) returns (RefreshResponse);
   rpc ValidateAccessToken(ValidateTokenRequest) returns (ValidateTokenResponse);
   rpc ValidateRefreshToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+  rpc RequestPasswordChange(RequestPasswordChangeRequest) returns (RequestPasswordChangeResponse);
+  rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
+}
+
+message ChangePasswordRequest {
+  string reset_token = 1;
+  string new_password = 2;
+}
+
+message ChangePasswordResponse {
+  bool success = 1;
+}
+
+message RequestPasswordChangeRequest {
+  string email = 1;
+}
+
+message RequestPasswordChangeResponse {
+  bool success = 1;
 }
 
 message ValidateTokenRequest {

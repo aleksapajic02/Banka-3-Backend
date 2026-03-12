@@ -19,11 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	UserService_GetEmployeeById_FullMethodName      = "/user.UserService/GetEmployeeById"
-	UserService_Login_FullMethodName                = "/user.UserService/Login"
-	UserService_Refresh_FullMethodName              = "/user.UserService/Refresh"
-	UserService_ValidateAccessToken_FullMethodName  = "/user.UserService/ValidateAccessToken"
-	UserService_ValidateRefreshToken_FullMethodName = "/user.UserService/ValidateRefreshToken"
+	UserService_GetEmployeeById_FullMethodName       = "/user.UserService/GetEmployeeById"
+	UserService_Login_FullMethodName                 = "/user.UserService/Login"
+	UserService_Refresh_FullMethodName               = "/user.UserService/Refresh"
+	UserService_ValidateAccessToken_FullMethodName   = "/user.UserService/ValidateAccessToken"
+	UserService_ValidateRefreshToken_FullMethodName  = "/user.UserService/ValidateRefreshToken"
+	UserService_RequestPasswordChange_FullMethodName = "/user.UserService/RequestPasswordChange"
+	UserService_ChangePassword_FullMethodName        = "/user.UserService/ChangePassword"
 )
 
 // UserServiceClient is the client API for UserService service.
@@ -35,6 +37,8 @@ type UserServiceClient interface {
 	Refresh(ctx context.Context, in *RefreshRequest, opts ...grpc.CallOption) (*RefreshResponse, error)
 	ValidateAccessToken(ctx context.Context, in *ValidateTokenRequest, opts ...grpc.CallOption) (*ValidateTokenResponse, error)
 	ValidateRefreshToken(ctx context.Context, in *ValidateTokenRequest, opts ...grpc.CallOption) (*ValidateTokenResponse, error)
+	RequestPasswordChange(ctx context.Context, in *RequestPasswordChangeRequest, opts ...grpc.CallOption) (*RequestPasswordChangeResponse, error)
+	ChangePassword(ctx context.Context, in *ChangePasswordRequest, opts ...grpc.CallOption) (*ChangePasswordResponse, error)
 }
 
 type userServiceClient struct {
@@ -95,6 +99,26 @@ func (c *userServiceClient) ValidateRefreshToken(ctx context.Context, in *Valida
 	return out, nil
 }
 
+func (c *userServiceClient) RequestPasswordChange(ctx context.Context, in *RequestPasswordChangeRequest, opts ...grpc.CallOption) (*RequestPasswordChangeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RequestPasswordChangeResponse)
+	err := c.cc.Invoke(ctx, UserService_RequestPasswordChange_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) ChangePassword(ctx context.Context, in *ChangePasswordRequest, opts ...grpc.CallOption) (*ChangePasswordResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ChangePasswordResponse)
+	err := c.cc.Invoke(ctx, UserService_ChangePassword_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UserServiceServer is the server API for UserService service.
 // All implementations must embed UnimplementedUserServiceServer
 // for forward compatibility.
@@ -104,6 +128,8 @@ type UserServiceServer interface {
 	Refresh(context.Context, *RefreshRequest) (*RefreshResponse, error)
 	ValidateAccessToken(context.Context, *ValidateTokenRequest) (*ValidateTokenResponse, error)
 	ValidateRefreshToken(context.Context, *ValidateTokenRequest) (*ValidateTokenResponse, error)
+	RequestPasswordChange(context.Context, *RequestPasswordChangeRequest) (*RequestPasswordChangeResponse, error)
+	ChangePassword(context.Context, *ChangePasswordRequest) (*ChangePasswordResponse, error)
 	mustEmbedUnimplementedUserServiceServer()
 }
 
@@ -128,6 +154,12 @@ func (UnimplementedUserServiceServer) ValidateAccessToken(context.Context, *Vali
 }
 func (UnimplementedUserServiceServer) ValidateRefreshToken(context.Context, *ValidateTokenRequest) (*ValidateTokenResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ValidateRefreshToken not implemented")
+}
+func (UnimplementedUserServiceServer) RequestPasswordChange(context.Context, *RequestPasswordChangeRequest) (*RequestPasswordChangeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RequestPasswordChange not implemented")
+}
+func (UnimplementedUserServiceServer) ChangePassword(context.Context, *ChangePasswordRequest) (*ChangePasswordResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ChangePassword not implemented")
 }
 func (UnimplementedUserServiceServer) mustEmbedUnimplementedUserServiceServer() {}
 func (UnimplementedUserServiceServer) testEmbeddedByValue()                     {}
@@ -240,6 +272,42 @@ func _UserService_ValidateRefreshToken_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserService_RequestPasswordChange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RequestPasswordChangeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).RequestPasswordChange(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_RequestPasswordChange_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).RequestPasswordChange(ctx, req.(*RequestPasswordChangeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_ChangePassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ChangePasswordRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).ChangePassword(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_ChangePassword_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).ChangePassword(ctx, req.(*ChangePasswordRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UserService_ServiceDesc is the grpc.ServiceDesc for UserService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -266,6 +334,14 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ValidateRefreshToken",
 			Handler:    _UserService_ValidateRefreshToken_Handler,
+		},
+		{
+			MethodName: "RequestPasswordChange",
+			Handler:    _UserService_RequestPasswordChange_Handler,
+		},
+		{
+			MethodName: "ChangePassword",
+			Handler:    _UserService_ChangePassword_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
