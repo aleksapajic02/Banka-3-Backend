@@ -22,10 +22,6 @@ type refreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-type validateTokenRequest struct {
-	Token string `json:"token"`
-}
-
 type passwordResetRequestRequest struct {
 	Email string `json:"email"`
 }
