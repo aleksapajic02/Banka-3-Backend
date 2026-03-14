@@ -3,7 +3,6 @@ package gateway
 import (
 	"context"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -188,9 +187,9 @@ func (s *Server) CreateEmployeeAccount(c *gin.Context) {
 }
 
 func (s *Server) GetEmployeeByID(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		c.String(http.StatusBadRequest, "employee id must be a valid integer")
+	var uri getEmployeeByIDURI
+	if err := c.ShouldBindUri(&uri); err != nil {
+		c.String(http.StatusBadRequest, "employee id is required and must be a valid integer")
 		return
 	}
 
@@ -198,7 +197,7 @@ func (s *Server) GetEmployeeByID(c *gin.Context) {
 	defer cancel()
 
 	resp, err := s.UserClient.GetEmployeeById(ctx, &userpb.GetEmployeeByIdRequest{
-		Id: id,
+		Id: uri.EmployeeID,
 	})
 	if err != nil {
 		writeGRPCError(c, err)
