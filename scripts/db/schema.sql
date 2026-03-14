@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS currency (
     active          BOOLEAN NOT     NULL DEFAULT TRUE
 );
 
-CREATE TYPE account_type AS ENUM ('personal', 'business');
+CREATE TYPE owner_type AS ENUM ('personal', 'business');
+CREATE TYPE account_type AS ENUM ('checking', 'foreign');
 
 CREATE TABLE IF NOT EXISTS account (
     number              VARCHAR(20)     PRIMARY KEY,
@@ -83,11 +84,11 @@ CREATE TABLE IF NOT EXISTS account (
     valid_until         DATE            NOT NULL,
     currency            VARCHAR(8)      NOT NULL REFERENCES currency(label) ON UPDATE CASCADE ON DELETE RESTRICT,
     active              BOOLEAN         NOT NULL DEFAULT FALSE,
-    type                account_type    NOT NULL,
+    owner_type          owner_type      NOT NULL,
+    account_type        account_type   NOT NULL,
     maintainance_cost   BIGINT          NOT NULL,
     daily_limit         BIGINT,
     monthly_limit       BIGINT,
     daily_expenditure   BIGINT,
     monthly_expenditure BIGINT,
-    -- TODO dodati tip za da li je devizni ili tekuci
 );
