@@ -7,34 +7,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
-	notificationpb "github.com/RAF-SI-2025/Banka-3-Backend/gen/notification"
 	userpb "github.com/RAF-SI-2025/Banka-3-Backend/gen/user"
 )
-
-type loginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-type refreshRequest struct {
-	RefreshToken string `json:"refresh_token"`
-}
-
-type validateTokenRequest struct {
-	Token string `json:"token"`
-}
-
-type passwordResetRequestRequest struct {
-	Email string `json:"email"`
-}
-
-type passwordResetConfirmationRequest struct {
-	Token       string `json:"token"`
-	NewPassword string `json:"password"`
-}
 
 func SetupApi(router *gin.Engine, server *Server) {
 	router.GET("/healthz", server.Healthz)
@@ -207,29 +182,4 @@ func (s *Server) ConfirmPasswordReset(c *gin.Context) {
 		c.Status(http.StatusUnprocessableEntity)
 	}
 
-}
-
-func writeGRPCError(c *gin.Context, err error) {
-	st, ok := status.FromError(err)
-	if !ok {
-		c.String(http.StatusInternalServerError, "internal server error")
-		return
-	}
-
-	switch st.Code() {
-	case codes.InvalidArgument:
-		c.String(http.StatusBadRequest, st.Message())
-	case codes.AlreadyExists:
-		c.String(http.StatusConflict, st.Message())
-	case codes.NotFound:
-		c.String(http.StatusNotFound, st.Message())
-	case codes.Unauthenticated:
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"message": st.Message(),
-		})
-	case codes.PermissionDenied:
-		c.String(http.StatusForbidden, st.Message())
-	default:
-		c.String(http.StatusInternalServerError, st.Message())
-	}
 }
