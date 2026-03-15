@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS company (
 );
 
 CREATE TYPE card_type AS ENUM ('debit', 'credit');
+CREATE TYPE card_status AS ENUM ('active', 'blocked', 'deactivated')
 
 CREATE TABLE IF NOT EXISTS card (
     number          VARCHAR(20)     PRIMARY KEY,
@@ -120,7 +121,7 @@ CREATE TABLE IF NOT EXISTS card (
     account_number  VARCHAR(20)     REFERENCES account(number) ON UPDATE CASCADE ON DELETE RESTRICT,
     cvv             VARCHAR(7)      NOT NULL,
     card_limit      BIGINT,
-    active          BOOLEAN         NOT NULL DEFAULT FALSE
+    status          card_status     NOT NULL DEFAULT 'active'
 );
 
 CREATE TABLE IF NOT EXISTS ovlasceno_lice (
