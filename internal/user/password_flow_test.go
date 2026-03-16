@@ -76,13 +76,13 @@ func TestRequestPasswordResetUnknownEmailReturnsAccepted(t *testing.T) {
 
 	email := "missing@banka.raf"
 	mock.ExpectQuery(regexp.QuoteMeta(`
-		SELECT email, password FROM employees WHERE email = $1
+		SELECT email, password, salt_password FROM employees WHERE email = $1
 		UNION ALL
-		SELECT email, password FROM clients WHERE email = $1
+		SELECT email, password, salt_password FROM clients WHERE email = $1
 		LIMIT 1
 	`)).
 		WithArgs(email).
-		WillReturnRows(sqlmock.NewRows([]string{"email", "password"}))
+		WillReturnRows(sqlmock.NewRows([]string{"email", "password", "salt_password"}))
 
 	resp, err := server.RequestPasswordReset(context.Background(), &userpb.PasswordActionRequest{Email: email})
 	if err != nil {
@@ -110,13 +110,13 @@ func TestRequestPasswordResetExistingEmailSendsNotification(t *testing.T) {
 
 	email := "admin@banka.raf"
 	mock.ExpectQuery(regexp.QuoteMeta(`
-		SELECT email, password FROM employees WHERE email = $1
+		SELECT email, password, salt_password FROM employees WHERE email = $1
 		UNION ALL
-		SELECT email, password FROM clients WHERE email = $1
+		SELECT email, password, salt_password FROM clients WHERE email = $1
 		LIMIT 1
 	`)).
 		WithArgs(email).
-		WillReturnRows(sqlmock.NewRows([]string{"email", "password"}).AddRow(email, []byte{1, 2, 3}))
+		WillReturnRows(sqlmock.NewRows([]string{"email", "password", "salt_password"}).AddRow(email, []byte{1, 2, 3}, []byte{3, 2, 1}))
 	mock.ExpectExec("INSERT INTO password_action_tokens").
 		WithArgs(email, passwordActionReset, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -172,13 +172,13 @@ func TestRequestInitialPasswordSetExistingEmailSendsNotification(t *testing.T) {
 
 	email := "client@banka.raf"
 	mock.ExpectQuery(regexp.QuoteMeta(`
-		SELECT email, password FROM employees WHERE email = $1
+		SELECT email, password, salt_password FROM employees WHERE email = $1
 		UNION ALL
-		SELECT email, password FROM clients WHERE email = $1
+		SELECT email, password, salt_password FROM clients WHERE email = $1
 		LIMIT 1
 	`)).
 		WithArgs(email).
-		WillReturnRows(sqlmock.NewRows([]string{"email", "password"}).AddRow(email, []byte{9, 9, 9}))
+		WillReturnRows(sqlmock.NewRows([]string{"email", "password", "salt_password"}).AddRow(email, []byte{9, 9, 9}, []byte{7, 7, 7}))
 	mock.ExpectExec("INSERT INTO password_action_tokens").
 		WithArgs(email, passwordActionInitialSet, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
