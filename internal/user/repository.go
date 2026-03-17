@@ -11,6 +11,7 @@ import (
 	"log"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"strconv"
 	"strings"
 )
@@ -22,6 +23,11 @@ type User struct {
 }
 
 var ErrInvalidPasswordActionToken = errors.New("invalid or expired password token")
+
+var ErrCompanyNotFound = errors.New("company not found")
+var ErrCompanyRegisteredIDExists = errors.New("company with registered id already exists")
+var ErrCompanyOwnerNotFound = errors.New("company owner not found")
+var ErrCompanyActivityCodeNotFound = errors.New("company activity code not found")
 
 func (s *Server) GetUserByEmail(email string) (*User, error) {
 	query := `
@@ -191,6 +197,208 @@ func (s *Server) RevokeRefreshTokensByEmail(tx *sql.Tx, email string) error {
 		return fmt.Errorf("revoking refresh tokens: %w", err)
 	}
 	return nil
+}
+
+func (s *Server) ownerExists(ownerID int64) (bool, error) {
+	var exists bool
+	err := s.database.QueryRow(`SELECT EXISTS(SELECT 1 FROM clients WHERE id = $1)`, ownerID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("checking owner existence: %w", err)
+	}
+	return exists, nil
+}
+
+func (s *Server) activityCodeExists(activityCodeID int64) (bool, error) {
+	var exists bool
+	err := s.database.QueryRow(`SELECT EXISTS(SELECT 1 FROM activity_codes WHERE id = $1)`, activityCodeID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("checking activity code existence: %w", err)
+	}
+	return exists, nil
+}
+
+func (s *Server) companyExists(companyID int64) (bool, error) {
+	var exists bool
+	err := s.database.QueryRow(`SELECT EXISTS(SELECT 1 FROM companies WHERE id = $1)`, companyID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("checking company existence: %w", err)
+	}
+	return exists, nil
+}
+
+func scanCompany(scanner interface {
+	Scan(dest ...any) error
+}) (*Companies, error) {
+	var company Companies
+	var activityCodeID sql.NullInt64
+	err := scanner.Scan(
+		&company.Id,
+		&company.Registered_id,
+		&company.Name,
+		&company.Tax_code,
+		&activityCodeID,
+		&company.Address,
+		&company.Owner_id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if activityCodeID.Valid {
+		company.Activity_code_id = activityCodeID.Int64
+	}
+	return &company, nil
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+func (s *Server) CreateCompanyRecord(company Companies) (*Companies, error) {
+	ownerExists, err := s.ownerExists(company.Owner_id)
+	if err != nil {
+		return nil, err
+	}
+	if !ownerExists {
+		return nil, ErrCompanyOwnerNotFound
+	}
+
+	if company.Activity_code_id != 0 {
+		activityCodeExists, err := s.activityCodeExists(company.Activity_code_id)
+		if err != nil {
+			return nil, err
+		}
+		if !activityCodeExists {
+			return nil, ErrCompanyActivityCodeNotFound
+		}
+	}
+
+	var row *sql.Row
+	if company.Activity_code_id == 0 {
+		row = s.database.QueryRow(`
+			INSERT INTO companies (registered_id, name, tax_code, activity_code_id, address, owner_id)
+			VALUES ($1, $2, $3, NULL, $4, $5)
+			RETURNING id, registered_id, name, tax_code, activity_code_id, address, owner_id
+		`, company.Registered_id, company.Name, company.Tax_code, company.Address, company.Owner_id)
+	} else {
+		row = s.database.QueryRow(`
+			INSERT INTO companies (registered_id, name, tax_code, activity_code_id, address, owner_id)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			RETURNING id, registered_id, name, tax_code, activity_code_id, address, owner_id
+		`, company.Registered_id, company.Name, company.Tax_code, company.Activity_code_id, company.Address, company.Owner_id)
+	}
+
+	created, err := scanCompany(row)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, ErrCompanyRegisteredIDExists
+		}
+		return nil, fmt.Errorf("creating company: %w", err)
+	}
+
+	return created, nil
+}
+
+func (s *Server) GetCompanyByIDRecord(companyID int64) (*Companies, error) {
+	row := s.database.QueryRow(`
+		SELECT id, registered_id, name, tax_code, activity_code_id, address, owner_id
+		FROM companies
+		WHERE id = $1
+	`, companyID)
+
+	company, err := scanCompany(row)
+	if err == sql.ErrNoRows {
+		return nil, ErrCompanyNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting company by id: %w", err)
+	}
+
+	return company, nil
+}
+
+func (s *Server) GetCompaniesRecords() ([]*Companies, error) {
+	rows, err := s.database.Query(`
+		SELECT id, registered_id, name, tax_code, activity_code_id, address, owner_id
+		FROM companies
+		ORDER BY id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("listing companies: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var companies []*Companies
+	for rows.Next() {
+		company, err := scanCompany(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scanning company: %w", err)
+		}
+		companies = append(companies, company)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating companies: %w", err)
+	}
+
+	return companies, nil
+}
+
+func (s *Server) UpdateCompanyRecord(company Companies) (*Companies, error) {
+	companyExists, err := s.companyExists(company.Id)
+	if err != nil {
+		return nil, err
+	}
+	if !companyExists {
+		return nil, ErrCompanyNotFound
+	}
+
+	ownerExists, err := s.ownerExists(company.Owner_id)
+	if err != nil {
+		return nil, err
+	}
+	if !ownerExists {
+		return nil, ErrCompanyOwnerNotFound
+	}
+
+	if company.Activity_code_id != 0 {
+		activityCodeExists, err := s.activityCodeExists(company.Activity_code_id)
+		if err != nil {
+			return nil, err
+		}
+		if !activityCodeExists {
+			return nil, ErrCompanyActivityCodeNotFound
+		}
+	}
+
+	var row *sql.Row
+	if company.Activity_code_id == 0 {
+		row = s.database.QueryRow(`
+			UPDATE companies
+			SET registered_id = $1, name = $2, tax_code = $3, activity_code_id = NULL, address = $4, owner_id = $5
+			WHERE id = $6
+			RETURNING id, registered_id, name, tax_code, activity_code_id, address, owner_id
+		`, company.Registered_id, company.Name, company.Tax_code, company.Address, company.Owner_id, company.Id)
+	} else {
+		row = s.database.QueryRow(`
+			UPDATE companies
+			SET registered_id = $1, name = $2, tax_code = $3, activity_code_id = $4, address = $5, owner_id = $6
+			WHERE id = $7
+			RETURNING id, registered_id, name, tax_code, activity_code_id, address, owner_id
+		`, company.Registered_id, company.Name, company.Tax_code, company.Activity_code_id, company.Address, company.Owner_id, company.Id)
+	}
+
+	updated, err := scanCompany(row)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, ErrCompanyRegisteredIDExists
+		}
+		if err == sql.ErrNoRows {
+			return nil, ErrCompanyNotFound
+		}
+		return nil, fmt.Errorf("updating company: %w", err)
+	}
+
+	return updated, nil
 }
 
 func create_user_from_model[T Clients | Employees](user T, s *Server) error {
