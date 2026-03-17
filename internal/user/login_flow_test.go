@@ -12,7 +12,7 @@ import (
 )
 
 func TestLoginNonExistantUser(t *testing.T) {
-	server, mock, db := NewTestServer(t)
+	server, mock, db := newTestServer(t)
 	defer func() { _ = db.Close() }()
 
 	email := "missing@banka.raf"
@@ -41,7 +41,7 @@ func TestLoginNonExistantUser(t *testing.T) {
 }
 
 func TestLoginWrongPassword(t *testing.T) {
-	server, mock, db := NewTestServer(t)
+	server, mock, db := newTestServer(t)
 	defer func() { _ = db.Close() }()
 
 	email := "admin@banka.raf"
@@ -70,7 +70,7 @@ func TestLoginWrongPassword(t *testing.T) {
 }
 
 func TestLoginCorrectCreds(t *testing.T) {
-	server, mock, db := NewTestServer(t)
+	server, mock, db := newTestServer(t)
 	defer func() { _ = db.Close() }()
 
 	mockPassword := HashPassword("password", []byte{3, 2, 1})

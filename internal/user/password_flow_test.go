@@ -38,7 +38,7 @@ func (s *testNotificationServer) SendInitialPasswordSetEmail(_ context.Context, 
 }
 
 func TestRequestPasswordResetUnknownEmailReturnsAccepted(t *testing.T) {
-	server, mock, db := NewTestServer(t)
+	server, mock, db := newTestServer(t)
 	defer func() { _ = db.Close() }()
 
 	email := "missing@banka.raf"
@@ -65,7 +65,7 @@ func TestRequestPasswordResetUnknownEmailReturnsAccepted(t *testing.T) {
 }
 
 func TestRequestPasswordResetExistingEmailSendsNotification(t *testing.T) {
-	server, mock, db := NewTestServer(t)
+	server, mock, db := newTestServer(t)
 	defer func() { _ = db.Close() }()
 
 	notificationServer := &testNotificationServer{}
@@ -127,7 +127,7 @@ func TestRequestPasswordResetExistingEmailSendsNotification(t *testing.T) {
 }
 
 func TestRequestInitialPasswordSetExistingEmailSendsNotification(t *testing.T) {
-	server, mock, db := NewTestServer(t)
+	server, mock, db := newTestServer(t)
 	defer func() { _ = db.Close() }()
 
 	notificationServer := &testNotificationServer{}
@@ -185,7 +185,7 @@ func TestRequestInitialPasswordSetExistingEmailSendsNotification(t *testing.T) {
 }
 
 func TestSetPasswordWithTokenInvalidInput(t *testing.T) {
-	server, mock, db := NewTestServer(t)
+	server, mock, db := newTestServer(t)
 	defer func() { _ = db.Close() }()
 
 	_, err := server.SetPasswordWithToken(context.Background(), &userpb.SetPasswordWithTokenRequest{
@@ -205,7 +205,7 @@ func TestSetPasswordWithTokenInvalidInput(t *testing.T) {
 }
 
 func TestSetPasswordWithTokenSuccess(t *testing.T) {
-	server, mock, db := NewTestServer(t)
+	server, mock, db := newTestServer(t)
 	defer func() { _ = db.Close() }()
 
 	email := "admin@banka.raf"
@@ -244,7 +244,7 @@ func TestSetPasswordWithTokenSuccess(t *testing.T) {
 }
 
 func TestSetPasswordWithTokenInvalidOrExpiredToken(t *testing.T) {
-	server, mock, db := NewTestServer(t)
+	server, mock, db := newTestServer(t)
 	defer func() { _ = db.Close() }()
 
 	mock.ExpectBegin()

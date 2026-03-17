@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func StartNotificationTestServer(t *testing.T, handler notificationpb.NotificationServiceServer) (string, func()) {
+func startNotificationTestServer(t *testing.T, handler notificationpb.NotificationServiceServer) (string, func()) {
 	t.Helper()
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
@@ -32,7 +32,7 @@ func StartNotificationTestServer(t *testing.T, handler notificationpb.Notificati
 	}
 }
 
-func NewTestServer(t *testing.T) (*Server, sqlmock.Sqlmock, *sql.DB) {
+func newTestServer(t *testing.T) (*Server, sqlmock.Sqlmock, *sql.DB) {
 	t.Helper()
 
 	db, mock, err := sqlmock.New()
