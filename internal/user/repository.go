@@ -684,3 +684,134 @@ func (s *Server) UpdateEmployee_(emp *Employee) error {
 
 	return tx.Commit().Error
 }
+
+type loanView struct {
+	LoanNumber            string  `gorm:"column:loan_number"`
+	LoanType              string  `gorm:"column:loan_type"`
+	AccountNumber         string  `gorm:"column:account_number"`
+	LoanAmount            float64 `gorm:"column:loan_amount"`
+	RepaymentPeriod       int32   `gorm:"column:repayment_period"`
+	NominalRate           float64 `gorm:"column:nominal_rate"`
+	EffectiveRate         float64 `gorm:"column:effective_rate"`
+	AgreementDate         string  `gorm:"column:agreement_date"`
+	MaturityDate          string  `gorm:"column:maturity_date"`
+	NextInstallmentAmount float64 `gorm:"column:next_installment_amount"`
+	NextInstallmentDate   string  `gorm:"column:next_installment_date"`
+	RemainingDebt         float64 `gorm:"column:remaining_debt"`
+	Currency              string  `gorm:"column:currency"`
+	Status                string  `gorm:"column:status"`
+}
+
+func (s *Server) getOwnedAccountByNumber(clientEmail string, accountNumber string) (*Account, error) {
+	var account Account
+
+	err := s.db_gorm.
+		Model(&Account{}).
+		Joins("JOIN clients ON clients.id = accounts.owner").
+		Where("clients.email = ? AND accounts.number = ?", clientEmail, accountNumber).
+		First(&account).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &account, nil
+}
+
+func (s *Server) getCurrencyByLabel(label string) (*Currency, error) {
+	var currency Currency
+
+	err := s.db_gorm.
+		Model(&Currency{}).
+		Where("label = ?", label).
+		First(&currency).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &currency, nil
+}
+
+func (s *Server) getLoansForClient(clientEmail string, loanType string, accountNumber string, loanStatus string) ([]loanView, error) {
+	var loans []loanView
+
+	query := s.db_gorm.
+		Model(&Loan{}).
+		Joins("JOIN accounts ON accounts.id = loans.account_id").
+		Joins("JOIN clients ON clients.id = accounts.owner").
+		Joins("JOIN currencies ON currencies.id = loans.currency_id").
+		Where("clients.email = ?", clientEmail).
+		Select(`
+			CAST(loans.id AS text) AS loan_number,
+			loans.type::text AS loan_type,
+			accounts.number AS account_number,
+			loans.amount AS loan_amount,
+			loans.installments AS repayment_period,
+			loans.interest_rate AS nominal_rate,
+			0 AS effective_rate,
+			TO_CHAR(loans.date_signed, 'YYYY-MM-DD') AS agreement_date,
+			TO_CHAR(loans.date_end, 'YYYY-MM-DD') AS maturity_date,
+			loans.monthly_payment AS next_installment_amount,
+			TO_CHAR(loans.next_payment_due, 'YYYY-MM-DD') AS next_installment_date,
+			loans.remaining_debt AS remaining_debt,
+			currencies.label AS currency,
+			loans.loan_status::text AS status
+		`)
+
+	if loanType != "" {
+		query = query.Where("loans.type = ?", loanType)
+	}
+
+	if accountNumber != "" {
+		query = query.Where("accounts.number = ?", accountNumber)
+	}
+
+	if loanStatus != "" {
+		query = query.Where("loans.loan_status = ?", loanStatus)
+	}
+
+	err := query.
+		Order("loans.id DESC").
+		Scan(&loans).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return loans, nil
+}
+
+func (s *Server) getLoanByIDForClient(clientEmail string, loanID int64) (*loanView, error) {
+	var loan loanView
+
+	err := s.db_gorm.
+		Model(&Loan{}).
+		Joins("JOIN accounts ON accounts.id = loans.account_id").
+		Joins("JOIN clients ON clients.id = accounts.owner").
+		Joins("JOIN currencies ON currencies.id = loans.currency_id").
+		Where("clients.email = ? AND loans.id = ?", clientEmail, loanID).
+		Select(`
+			CAST(loans.id AS text) AS loan_number,
+			loans.type::text AS loan_type,
+			accounts.number AS account_number,
+			loans.amount AS loan_amount,
+			loans.installments AS repayment_period,
+			loans.interest_rate AS nominal_rate,
+			0 AS effective_rate,
+			TO_CHAR(loans.date_signed, 'YYYY-MM-DD') AS agreement_date,
+			TO_CHAR(loans.date_end, 'YYYY-MM-DD') AS maturity_date,
+			loans.monthly_payment AS next_installment_amount,
+			TO_CHAR(loans.next_payment_due, 'YYYY-MM-DD') AS next_installment_date,
+			loans.remaining_debt AS remaining_debt,
+			currencies.label AS currency,
+			loans.loan_status::text AS status
+		`).
+		Take(&loan).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &loan, nil
+}
+
+func (s *Server) createLoanRequest(req *LoanRequest) error {
+	return s.db_gorm.Create(req).Error
+}
