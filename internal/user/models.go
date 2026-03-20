@@ -143,7 +143,7 @@ type (
 		Name                string       `gorm:"column:name;type:varchar(127);not null"`
 		Owner               int64        `gorm:"column:owner;type:bigint;not null;references clients(id)"`
 		Balance             int64        `gorm:"column:balance;type:bigint;not null;default 0"`
-		Created_by          int64        `gorm:"column:created_by;type:bigint;not null;references employees(id)"`
+		Created_by          int64        `gorm:"column:created_by;type:bigint;references employees(id)"`
 		Created_at          time.Time    `gorm:"column:created_at;not null;autoCreateTime"`
 		Valid_until         time.Time    `gorm:"column:valid_until;not null"`
 		Currency            string       `gorm:"column:currency;type:varchar(8);not null;references currencies(label)"`
