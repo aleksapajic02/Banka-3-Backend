@@ -2,11 +2,13 @@ package user
 
 import (
 	"bytes"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +28,16 @@ var ErrInvalidPasswordActionToken = errors.New("invalid or expired password toke
 var ErrClientNotFound = errors.New("client not found")
 var ErrClientEmailExists = errors.New("client email already exists")
 var ErrClientNoFieldsToUpdate = errors.New("no client fields to update")
+
+var ErrCompanyNotFound = errors.New("company not found")
+var ErrCompanyRegisteredIDExists = errors.New("company with registered id already exists")
+var ErrCompanyOwnerNotFound = errors.New("company owner not found")
+var ErrCompanyActivityCodeNotFound = errors.New("company activity code not found")
+
+var ErrAccountOwnerNotFound = errors.New("account owner not found")
+var ErrAccountCreatorNotFound = errors.New("account creator not found")
+var ErrAccountCurrencyNotFound = errors.New("account currency not found")
+var ErrAccountNumberGenerationFailed = errors.New("account number generation failed")
 
 var ErrEmployeeNotFound = errors.New("employee not found")
 
@@ -329,9 +341,390 @@ func (s *Server) UpdateClientRecord(client *Client) error {
 	return nil
 }
 
+func scanCompany(scanner interface {
+	Scan(dest ...any) error
+}) (*Company, error) {
+	var company Company
+	var activityCodeID sql.NullInt64
+	err := scanner.Scan(
+		&company.Id,
+		&company.Registered_id,
+		&company.Name,
+		&company.Tax_code,
+		&activityCodeID,
+		&company.Address,
+		&company.Owner_id,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if activityCodeID.Valid {
+		company.Activity_code_id = activityCodeID.Int64
+	}
+	return &company, nil
+}
+
+func scanAccount(scanner interface {
+	Scan(dest ...any) error
+}) (*Account, error) {
+	var account Account
+	var ownerType string
+	var accountType string
+	var dailyLimit sql.NullInt64
+	var monthlyLimit sql.NullInt64
+	var dailyExpenditure sql.NullInt64
+	var monthlyExpenditure sql.NullInt64
+
+	err := scanner.Scan(
+		&account.Id,
+		&account.Number,
+		&account.Name,
+		&account.Owner,
+		&account.Balance,
+		&account.Created_by,
+		&account.Created_at,
+		&account.Valid_until,
+		&account.Currency,
+		&account.Active,
+		&ownerType,
+		&accountType,
+		&account.Maintainance_cost,
+		&dailyLimit,
+		&monthlyLimit,
+		&dailyExpenditure,
+		&monthlyExpenditure,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	account.Owner_type = owner_type(ownerType)
+	account.Account_type = account_type(accountType)
+	if dailyLimit.Valid {
+		account.Daily_limit = dailyLimit.Int64
+	}
+	if monthlyLimit.Valid {
+		account.Monthly_limit = monthlyLimit.Int64
+	}
+	if dailyExpenditure.Valid {
+		account.Daily_expenditure = dailyExpenditure.Int64
+	}
+	if monthlyExpenditure.Valid {
+		account.Monthly_expenditure = monthlyExpenditure.Int64
+	}
+
+	return &account, nil
+}
+
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+func randomDigits(length int) (string, error) {
+	var builder strings.Builder
+	builder.Grow(length)
+
+	for i := 0; i < length; i++ {
+		digit, err := cryptorand.Int(cryptorand.Reader, big.NewInt(10))
+		if err != nil {
+			return "", err
+		}
+		builder.WriteByte(byte('0' + digit.Int64()))
+	}
+
+	return builder.String(), nil
+}
+
+func (s *Server) accountNumberExists(tx *sql.Tx, number string) (bool, error) {
+	var exists bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM accounts WHERE number = $1)`, number).Scan(&exists); err != nil {
+		return false, fmt.Errorf("checking account number existence: %w", err)
+	}
+	return exists, nil
+}
+
+func (s *Server) generateAccountNumber(tx *sql.Tx) (string, error) {
+	for range 5 {
+		number, err := randomDigits(20)
+		if err != nil {
+			return "", fmt.Errorf("generating account number digits: %w", err)
+		}
+
+		exists, err := s.accountNumberExists(tx, number)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return number, nil
+		}
+	}
+
+	return "", ErrAccountNumberGenerationFailed
+}
+
+func (s *Server) CreateAccountRecord(account Account) (*Account, error) {
+	if account.Valid_until.IsZero() {
+		account.Valid_until = time.Now().AddDate(3, 0, 0)
+	}
+	account.Balance = 0
+	account.Active = false
+	account.Daily_expenditure = 0
+	account.Monthly_expenditure = 0
+
+	var dailyLimit any
+	if account.Daily_limit != 0 {
+		dailyLimit = account.Daily_limit
+	}
+
+	var monthlyLimit any
+	if account.Monthly_limit != 0 {
+		monthlyLimit = account.Monthly_limit
+	}
+
+	for range 5 {
+		tx, err := s.database.Begin()
+		if err != nil {
+			return nil, fmt.Errorf("starting transaction: %w", err)
+		}
+
+		var ownerExists bool
+		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM clients WHERE id = $1)`, account.Owner).Scan(&ownerExists); err != nil {
+			_ = tx.Rollback()
+			return nil, fmt.Errorf("checking account owner existence: %w", err)
+		}
+		if !ownerExists {
+			_ = tx.Rollback()
+			return nil, ErrAccountOwnerNotFound
+		}
+
+		var creatorExists bool
+		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM employees WHERE id = $1)`, account.Created_by).Scan(&creatorExists); err != nil {
+			_ = tx.Rollback()
+			return nil, fmt.Errorf("checking account creator existence: %w", err)
+		}
+		if !creatorExists {
+			_ = tx.Rollback()
+			return nil, ErrAccountCreatorNotFound
+		}
+
+		var currencyExists bool
+		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM currencies WHERE label = $1)`, account.Currency).Scan(&currencyExists); err != nil {
+			_ = tx.Rollback()
+			return nil, fmt.Errorf("checking currency existence: %w", err)
+		}
+		if !currencyExists {
+			_ = tx.Rollback()
+			return nil, ErrAccountCurrencyNotFound
+		}
+
+		number, err := s.generateAccountNumber(tx)
+		if err != nil {
+			_ = tx.Rollback()
+			if errors.Is(err, ErrAccountNumberGenerationFailed) {
+				return nil, err
+			}
+			return nil, fmt.Errorf("generating account number: %w", err)
+		}
+		account.Number = number
+
+		row := tx.QueryRow(`
+			INSERT INTO accounts (
+				number, name, owner, balance, created_by, valid_until, currency, active,
+				owner_type, account_type, maintainance_cost, daily_limit, monthly_limit,
+				daily_expenditure, monthly_expenditure
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+			RETURNING id, number, name, owner, balance, created_by, created_at, valid_until,
+				currency, active, owner_type, account_type, maintainance_cost, daily_limit,
+				monthly_limit, daily_expenditure, monthly_expenditure
+		`, account.Number, account.Name, account.Owner, account.Balance, account.Created_by,
+			account.Valid_until, account.Currency, account.Active, string(account.Owner_type),
+			string(account.Account_type), account.Maintainance_cost, dailyLimit, monthlyLimit,
+			account.Daily_expenditure, account.Monthly_expenditure)
+
+		created, err := scanAccount(row)
+		if err != nil {
+			if isUniqueViolation(err) {
+				_ = tx.Rollback()
+				continue
+			}
+			_ = tx.Rollback()
+			return nil, fmt.Errorf("creating account: %w", err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("committing transaction: %w", err)
+		}
+
+		return created, nil
+	}
+
+	return nil, ErrAccountNumberGenerationFailed
+}
+
+func (s *Server) CreateCompanyRecord(company Company) (*Company, error) {
+	tx, err := s.database.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("starting transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var ownerExists bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM clients WHERE id = $1)`, company.Owner_id).Scan(&ownerExists); err != nil {
+		return nil, fmt.Errorf("checking owner existence: %w", err)
+	}
+	if !ownerExists {
+		return nil, ErrCompanyOwnerNotFound
+	}
+
+	if company.Activity_code_id != 0 {
+		var activityCodeExists bool
+		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM activity_codes WHERE id = $1)`, company.Activity_code_id).Scan(&activityCodeExists); err != nil {
+			return nil, fmt.Errorf("checking activity code existence: %w", err)
+		}
+		if !activityCodeExists {
+			return nil, ErrCompanyActivityCodeNotFound
+		}
+	}
+
+	var row *sql.Row
+	if company.Activity_code_id == 0 {
+		row = tx.QueryRow(`
+			INSERT INTO companies (registered_id, name, tax_code, activity_code_id, address, owner_id)
+			VALUES ($1, $2, $3, NULL, $4, $5)
+			RETURNING id, registered_id, name, tax_code, activity_code_id, address, owner_id
+		`, company.Registered_id, company.Name, company.Tax_code, company.Address, company.Owner_id)
+	} else {
+		row = tx.QueryRow(`
+			INSERT INTO companies (registered_id, name, tax_code, activity_code_id, address, owner_id)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			RETURNING id, registered_id, name, tax_code, activity_code_id, address, owner_id
+		`, company.Registered_id, company.Name, company.Tax_code, company.Activity_code_id, company.Address, company.Owner_id)
+	}
+
+	created, err := scanCompany(row)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, ErrCompanyRegisteredIDExists
+		}
+		return nil, fmt.Errorf("creating company: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("committing transaction: %w", err)
+	}
+
+	return created, nil
+}
+
+func (s *Server) GetCompanyByIDRecord(companyID int64) (*Company, error) {
+	row := s.database.QueryRow(`
+		SELECT id, registered_id, name, tax_code, activity_code_id, address, owner_id
+		FROM companies
+		WHERE id = $1
+	`, companyID)
+
+	company, err := scanCompany(row)
+	if err == sql.ErrNoRows {
+		return nil, ErrCompanyNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting company by id: %w", err)
+	}
+
+	return company, nil
+}
+
+func (s *Server) GetCompaniesRecords() ([]*Company, error) {
+	rows, err := s.database.Query(`
+		SELECT id, registered_id, name, tax_code, activity_code_id, address, owner_id
+		FROM companies
+		ORDER BY id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("listing companies: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var companies []*Company
+	for rows.Next() {
+		company, err := scanCompany(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scanning company: %w", err)
+		}
+		companies = append(companies, company)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating companies: %w", err)
+	}
+
+	return companies, nil
+}
+
+func (s *Server) UpdateCompanyRecord(company Company) (*Company, error) {
+	tx, err := s.database.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("starting transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var companyExists bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM companies WHERE id = $1)`, company.Id).Scan(&companyExists); err != nil {
+		return nil, fmt.Errorf("checking company existence: %w", err)
+	}
+	if !companyExists {
+		return nil, ErrCompanyNotFound
+	}
+
+	var ownerExists bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM clients WHERE id = $1)`, company.Owner_id).Scan(&ownerExists); err != nil {
+		return nil, fmt.Errorf("checking owner existence: %w", err)
+	}
+	if !ownerExists {
+		return nil, ErrCompanyOwnerNotFound
+	}
+
+	if company.Activity_code_id != 0 {
+		var activityCodeExists bool
+		if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM activity_codes WHERE id = $1)`, company.Activity_code_id).Scan(&activityCodeExists); err != nil {
+			return nil, fmt.Errorf("checking activity code existence: %w", err)
+		}
+		if !activityCodeExists {
+			return nil, ErrCompanyActivityCodeNotFound
+		}
+	}
+
+	var row *sql.Row
+	if company.Activity_code_id == 0 {
+		row = tx.QueryRow(`
+			UPDATE companies
+			SET name = $1, activity_code_id = NULL, address = $2, owner_id = $3
+			WHERE id = $4
+			RETURNING id, registered_id, name, tax_code, activity_code_id, address, owner_id
+		`, company.Name, company.Address, company.Owner_id, company.Id)
+	} else {
+		row = tx.QueryRow(`
+			UPDATE companies
+			SET name = $1, activity_code_id = $2, address = $3, owner_id = $4
+			WHERE id = $5
+			RETURNING id, registered_id, name, tax_code, activity_code_id, address, owner_id
+		`, company.Name, company.Activity_code_id, company.Address, company.Owner_id, company.Id)
+	}
+
+	updated, err := scanCompany(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrCompanyNotFound
+		}
+		return nil, fmt.Errorf("updating company: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("committing transaction: %w", err)
+	}
+
+	return updated, nil
 }
 
 func create_user_from_model[T Client | Employee](user T, s *Server) error {
@@ -367,6 +760,14 @@ func (s *Server) getEmployeeById(id int64) (*Employee, error) {
 	return &employee, nil
 }
 
+func (s *Server) deleteEmployee(id int64) error {
+	resp := s.db_gorm.Delete(&Employee{}, id)
+	if resp.RowsAffected == 0 {
+		return ErrEmployeeNotFound
+	}
+	return nil
+}
+
 func (s *Server) GetAllEmployees(email *string, name *string, lastName *string, position *string) ([]Employee, error) {
 	var employees []Employee
 	query := s.db_gorm.Model(&Employee{}).Preload("Permissions")
@@ -386,6 +787,8 @@ func (s *Server) GetAllEmployees(email *string, name *string, lastName *string, 
 	if position != nil && *position != "" {
 		query = query.Where("position = ?", *position)
 	}
+
+	query = query.Where("active = true")
 
 	err := query.Find(&employees).Error
 	if err != nil {

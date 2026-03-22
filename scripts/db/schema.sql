@@ -43,6 +43,16 @@ CREATE TABLE IF NOT EXISTS clients (
     updated_at    TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS payment_recipients (
+    id              BIGSERIAL    PRIMARY KEY,
+    client_id       BIGINT       NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    name            VARCHAR(127) NOT NULL,
+    account_number  VARCHAR(20)  NOT NULL,
+    created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+    UNIQUE (client_id, account_number)
+);
+
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     email        VARCHAR(255) PRIMARY KEY,
     hashed_token BYTEA        NOT NULL,
@@ -82,7 +92,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     name                VARCHAR(127)    NOT NULL,
     owner               BIGINT          NOT NULL REFERENCES clients(id) ON DELETE CASCADE, -- cascade delete??
     balance             BIGINT          NOT NULL DEFAULT 0,
-    created_by          BIGINT          NOT NULL REFERENCES employees(id) ON DELETE SET NULL,
+    created_by          BIGINT          REFERENCES employees(id) ON DELETE SET NULL,
     created_at          DATE            NOT NULL DEFAULT CURRENT_DATE,
     valid_until         DATE            NOT NULL,
     currency            VARCHAR(8)      NOT NULL REFERENCES currencies(label) ON UPDATE CASCADE ON DELETE RESTRICT,
@@ -152,6 +162,7 @@ CREATE TABLE IF NOT EXISTS payments (
     start_amount        BIGINT          NOT NULL,
     end_amount          BIGINT          NOT NULL,
     commission          BIGINT          NOT NULL,
+    status              VARCHAR(20)     NOT NULL DEFAULT 'realized' CHECK (status IN ('realized', 'rejected', 'pending')),
     recipient_id        BIGINT          REFERENCES clients(id),
     transcaction_code    INT            NOT NULL,
     call_number         VARCHAR(31)     NOT NULL,
@@ -168,6 +179,7 @@ CREATE TABLE IF NOT EXISTS transfers (
     start_currency_id   BIGINT          REFERENCES currencies(id) ON UPDATE CASCADE ON DELETE RESTRICT,
     exchange_rate       DECIMAL(20,2),
     commission          BIGINT          NOT NULL,
+    status              VARCHAR(20)     NOT NULL DEFAULT 'realized' CHECK (status IN ('realized', 'rejected', 'pending')),
     timestamp           TIMESTAMP       NOT NULL DEFAULT NOW()
 );
 

@@ -9,6 +9,8 @@ service UserService {
   rpc GetEmployeeByEmail(GetEmployeeByEmailRequest) returns (GetEmployeeResponse);
   rpc GetEmployees(GetEmployeesRequest) returns (GetEmployeesResponse);
   rpc UpdateEmployee(UpdateEmployeeRequest) returns (GetEmployeeResponse);
+  rpc DeleteEmployee(DeleteEmployeeRequest) returns (DeleteEmployeeResponse);
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
   rpc Login(LoginRequest) returns (LoginResponse);
   rpc Logout(LogoutRequest) returns (LogoutResponse);
   rpc Refresh(RefreshRequest) returns (RefreshResponse);
@@ -23,6 +25,14 @@ service UserService {
   rpc CreateEmployeeAccount(CreateEmployeeRequest) returns (GetEmployeeResponse);
 }
 
+message DeleteEmployeeRequest {
+  int64 id = 1;
+}
+
+message DeleteEmployeeResponse {
+  bool success = 1;
+}
+
 message ValidateTokenRequest {
   string token = 1;
 }
@@ -33,6 +43,25 @@ message ValidateTokenResponse {
   int64 exp = 3;
 }
 
+
+message CreateAccountRequest {
+  string Name = 1;
+  int64 Owner = 2;
+  string Currency = 3;
+  string OwnerType = 4;
+  string AccountType = 5;
+  int64 MaintainanceCost = 6;
+  int64 DailyLimit = 7;
+  int64 MonthlyLimit = 8;
+  int64 CreatedBy = 9;
+  int64 ValidUntil = 10;
+}
+
+message CreateAccountResponse {
+  bool Valid = 1;
+  string AccountNumber = 2;
+  string Error = 3;
+}
 
 message RefreshRequest {
   string refresh_token = 1;

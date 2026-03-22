@@ -15,6 +15,7 @@ type Server struct {
 	UserClient         userpb.UserServiceClient
 	BankClient         bankpb.BankServiceClient
 	NotificationClient notificationpb.NotificationServiceClient
+	BankClient         bankpb.BankServiceClient
 }
 
 func NewServer() (*Server, error) {
@@ -28,6 +29,11 @@ func NewServer() (*Server, error) {
 		notificationAddr = "notification:50051"
 	}
 
+	bankAddr := os.Getenv("BANK_GRPC_ADDR")
+	if bankAddr == "" {
+		bankAddr = "bank:50051"
+	}
+
 	userConn, err := grpc.NewClient(userAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
@@ -39,8 +45,16 @@ func NewServer() (*Server, error) {
 		return nil, err
 	}
 
+	bankConn, err := grpc.NewClient(bankAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		_ = userConn.Close()
+		_ = notificationConn.Close()
+		return nil, err
+	}
+
 	return &Server{
 		UserClient:         userpb.NewUserServiceClient(userConn),
 		NotificationClient: notificationpb.NewNotificationServiceClient(notificationConn),
+		BankClient:         bankpb.NewBankServiceClient(bankConn),
 	}, nil
 }

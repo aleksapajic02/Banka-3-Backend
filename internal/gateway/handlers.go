@@ -2,7 +2,9 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +21,21 @@ func SetupApi(router *gin.Engine, server *Server) {
 		api.POST("/login", server.Login)
 		api.POST("/logout", AuthenticatedMiddleware(server.UserClient), server.Logout)
 		api.POST("/token/refresh", server.Refresh)
+	}
+
+	recipients := api.Group("/recipients", AuthenticatedMiddleware(server.UserClient))
+	{
+		recipients.GET("", server.GetPaymentRecipients)
+		recipients.POST("", server.CreatePaymentRecipient)
+		recipients.PUT("/:id", server.UpdatePaymentRecipient)
+		recipients.DELETE("/:id", server.DeletePaymentRecipient)
+	}
+
+	transactions := api.Group("/transactions", AuthenticatedMiddleware(server.UserClient))
+	{
+		transactions.GET("", server.GetTransactions)
+		transactions.GET("/:id", server.GetTransactionByID)
+		transactions.GET("/:id/pdf", server.GenerateTransactionPDF)
 	}
 
 	passwordReset := api.Group("/password-reset")
@@ -38,6 +55,7 @@ func SetupApi(router *gin.Engine, server *Server) {
 	{
 		employees.POST("", server.CreateEmployeeAccount)
 		employees.GET("/:id", server.GetEmployeeByID)
+		employees.DELETE("/:id", server.DeleteEmployeeByID)
 		employees.GET("", server.GetEmployees)
 		employees.PUT("/:id", server.UpdateEmployee)
 	}
@@ -48,6 +66,11 @@ func SetupApi(router *gin.Engine, server *Server) {
 		companies.GET("", server.GetCompanies)
 		companies.GET("/:id", server.GetCompanyByID)
 		companies.PUT("/:id", server.UpdateCompany)
+	}
+
+	accounts := api.Group("/accounts")
+	{
+		accounts.POST("", server.CreateAccount)
 	}
 }
 
@@ -71,6 +94,36 @@ func (s *Server) Logout(c *gin.Context) {
 	}
 
 	c.Status(http.StatusAccepted)
+}
+
+func (s *Server) getAuthenticatedClientID(c *gin.Context) (int64, bool) {
+	email := strings.TrimSpace(c.GetString("email"))
+	if email == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "authentication required",
+		})
+		return 0, false
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.UserClient.GetClients(ctx, &userpb.GetClientsRequest{
+		Email: email,
+	})
+	if err != nil {
+		writeGRPCError(c, err)
+		return 0, false
+	}
+
+	if len(resp.Clients) == 0 {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "authenticated user is not a client",
+		})
+		return 0, false
+	}
+
+	return resp.Clients[0].Id, true
 }
 
 func (s *Server) Login(c *gin.Context) {
@@ -371,6 +424,40 @@ func (s *Server) UpdateCompany(c *gin.Context) {
 	c.JSON(http.StatusOK, companyResponse(resp.Company))
 }
 
+func (s *Server) CreateAccount(c *gin.Context) {
+	var req createAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeBindError(c, err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.UserClient.CreateAccount(ctx, &userpb.CreateAccountRequest{
+		Name:             req.Name,
+		Owner:            req.Owner,
+		Currency:         req.Currency,
+		OwnerType:        req.OwnerType,
+		AccountType:      req.AccountType,
+		MaintainanceCost: req.MaintainanceCost,
+		DailyLimit:       req.DailyLimit,
+		MonthlyLimit:     req.MonthlyLimit,
+		CreatedBy:        req.CreatedBy,
+		ValidUntil:       req.ValidUntil,
+	})
+	if err != nil {
+		writeGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"valid":          resp.Valid,
+		"account_number": resp.AccountNumber,
+		"error":          resp.Error,
+	})
+}
+
 func (s *Server) GetEmployeeByID(c *gin.Context) {
 	var uri getEmployeeByIDURI
 	if err := c.ShouldBindUri(&uri); err != nil {
@@ -390,20 +477,40 @@ func (s *Server) GetEmployeeByID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"id":            resp.Id,
-		"first_name":    resp.FirstName,
-		"last_name":     resp.LastName,
-		"birth_date":    time.Unix(resp.BirthDate, 0).Format(time.DateOnly),
-		"gender":        resp.Gender,
-		"email":         resp.Email,
-		"phone_numbere": resp.PhoneNumber,
-		"address":       resp.PhoneNumber,
-		"username":      resp.Username,
-		"position":      resp.Position,
-		"department":    resp.Department,
-		"active":        resp.Active,
-		"permissions":   resp.Permissions,
+		"id":           resp.Id,
+		"first_name":   resp.FirstName,
+		"last_name":    resp.LastName,
+		"birth_date":   time.Unix(resp.BirthDate, 0).Format(time.DateOnly),
+		"gender":       resp.Gender,
+		"email":        resp.Email,
+		"phone_number": resp.PhoneNumber,
+		"address":      resp.Address,
+		"username":     resp.Username,
+		"position":     resp.Position,
+		"department":   resp.Department,
+		"active":       resp.Active,
+		"permissions":  resp.Permissions,
 	})
+}
+
+func (s *Server) DeleteEmployeeByID(c *gin.Context) {
+	var uri getEmployeeByIDURI
+	if err := c.ShouldBindUri(&uri); err != nil {
+		c.String(http.StatusBadRequest, "employee id is required and must be a valid integer")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	_, err := s.UserClient.DeleteEmployee(ctx, &userpb.DeleteEmployeeRequest{
+		Id: uri.EmployeeID,
+	})
+	if err != nil {
+		writeGRPCError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func (s *Server) GetEmployees(c *gin.Context) {
@@ -514,4 +621,298 @@ func (s *Server) ConfirmPasswordReset(c *gin.Context) {
 	} else {
 		c.Status(http.StatusUnprocessableEntity)
 	}
+}
+
+func (s *Server) GetPaymentRecipients(c *gin.Context) {
+	clientID, ok := s.getAuthenticatedClientID(c)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.BankClient.GetPaymentRecipients(ctx, &bankpb.GetPaymentRecipientsRequest{
+		ClientId: clientID,
+	})
+	if err != nil {
+		writeGRPCError(c, err)
+		return
+	}
+
+	recipients := make([]gin.H, 0)
+
+	for _, r := range resp.Recipients {
+		recipients = append(recipients, gin.H{
+			"id":             r.Id,
+			"name":           r.Name,
+			"account_number": r.AccountNumber,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"recipients": recipients,
+	})
+}
+func (s *Server) CreatePaymentRecipient(c *gin.Context) {
+	var req createPaymentRecipientRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeBindError(c, err)
+		return
+	}
+
+	clientID, ok := s.getAuthenticatedClientID(c)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.BankClient.CreatePaymentRecipient(ctx, &bankpb.CreatePaymentRecipientRequest{
+		ClientId:      clientID,
+		Name:          req.Name,
+		AccountNumber: req.AccountNumber,
+	})
+	if err != nil {
+		writeGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"recipient": gin.H{
+			"id":             resp.Recipient.Id,
+			"name":           resp.Recipient.Name,
+			"account_number": resp.Recipient.AccountNumber,
+		},
+	})
+}
+func (s *Server) UpdatePaymentRecipient(c *gin.Context) {
+	var uri paymentRecipientByIDURI
+	if err := c.ShouldBindUri(&uri); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid recipient id",
+		})
+		return
+	}
+
+	var req updatePaymentRecipientRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeBindError(c, err)
+		return
+	}
+
+	clientID, ok := s.getAuthenticatedClientID(c)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.BankClient.UpdatePaymentRecipient(ctx, &bankpb.UpdatePaymentRecipientRequest{
+		Id:            uri.ID,
+		ClientId:      clientID,
+		Name:          req.Name,
+		AccountNumber: req.AccountNumber,
+	})
+	if err != nil {
+		writeGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"recipient": gin.H{
+			"id":             resp.Recipient.Id,
+			"name":           resp.Recipient.Name,
+			"account_number": resp.Recipient.AccountNumber,
+		},
+	})
+}
+func (s *Server) DeletePaymentRecipient(c *gin.Context) {
+	var uri paymentRecipientByIDURI
+	if err := c.ShouldBindUri(&uri); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid recipient id",
+		})
+		return
+	}
+
+	clientID, ok := s.getAuthenticatedClientID(c)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.BankClient.DeletePaymentRecipient(ctx, &bankpb.DeletePaymentRecipientRequest{
+		Id:       uri.ID,
+		ClientId: clientID,
+	})
+	if err != nil {
+		writeGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": resp.Success,
+	})
+}
+func (s *Server) GetTransactions(c *gin.Context) {
+	var query getTransactionsQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		writeBindError(c, err)
+		return
+	}
+
+	clientID, ok := s.getAuthenticatedClientID(c)
+	if !ok {
+		return
+	}
+
+	if query.Page <= 0 {
+		query.Page = 1
+	}
+	if query.PageSize <= 0 {
+		query.PageSize = 10
+	}
+	if query.SortBy == "" {
+		query.SortBy = "timestamp"
+	}
+	if query.SortOrder == "" {
+		query.SortOrder = "desc"
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.BankClient.GetTransactions(ctx, &bankpb.GetTransactionsRequest{
+		ClientId:   clientID,
+		DateFrom:   query.DateFrom,
+		DateTo:     query.DateTo,
+		AmountFrom: query.AmountFrom,
+		AmountTo:   query.AmountTo,
+		Status:     query.Status,
+		Page:       query.Page,
+		PageSize:   query.PageSize,
+		SortBy:     query.SortBy,
+		SortOrder:  query.SortOrder,
+	})
+	if err != nil {
+		writeGRPCError(c, err)
+		return
+	}
+
+	transactions := make([]gin.H, 0, len(resp.Transactions))
+	for _, t := range resp.Transactions {
+		transactions = append(transactions, gin.H{
+			"id":                t.Id,
+			"type":              t.Type,
+			"from_account":      t.FromAccount,
+			"to_account":        t.ToAccount,
+			"start_amount":      t.StartAmount,
+			"end_amount":        t.EndAmount,
+			"commission":        t.Commission,
+			"status":            t.Status,
+			"timestamp":         t.Timestamp,
+			"recipient_id":      t.RecipientId,
+			"transaction_code":  t.TransactionCode,
+			"call_number":       t.CallNumber,
+			"reason":            t.Reason,
+			"start_currency_id": t.StartCurrencyId,
+			"exchange_rate":     t.ExchangeRate,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"transactions": transactions,
+		"page":         resp.Page,
+		"page_size":    resp.PageSize,
+		"total":        resp.Total,
+		"total_pages":  resp.TotalPages,
+	})
+}
+func (s *Server) GetTransactionByID(c *gin.Context) {
+	var uri transactionByIDURI
+	if err := c.ShouldBindUri(&uri); err != nil {
+		writeBindError(c, err)
+		return
+	}
+	var query transactionTypeQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		writeBindError(c, err)
+		return
+	}
+
+	clientID, ok := s.getAuthenticatedClientID(c)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := s.BankClient.GetTransactionById(ctx, &bankpb.GetTransactionByIdRequest{
+		ClientId: clientID,
+		Id:       uri.ID,
+		Type:     query.Type,
+	})
+	if err != nil {
+		writeGRPCError(c, err)
+		return
+	}
+
+	t := resp.Transaction
+	c.JSON(http.StatusOK, gin.H{
+		"id":                t.Id,
+		"type":              t.Type,
+		"from_account":      t.FromAccount,
+		"to_account":        t.ToAccount,
+		"start_amount":      t.StartAmount,
+		"end_amount":        t.EndAmount,
+		"commission":        t.Commission,
+		"status":            t.Status,
+		"timestamp":         t.Timestamp,
+		"recipient_id":      t.RecipientId,
+		"transaction_code":  t.TransactionCode,
+		"call_number":       t.CallNumber,
+		"reason":            t.Reason,
+		"start_currency_id": t.StartCurrencyId,
+		"exchange_rate":     t.ExchangeRate,
+	})
+}
+func (s *Server) GenerateTransactionPDF(c *gin.Context) {
+	var uri transactionByIDURI
+	if err := c.ShouldBindUri(&uri); err != nil {
+		writeBindError(c, err)
+		return
+	}
+	var query transactionTypeQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		writeBindError(c, err)
+		return
+	}
+
+	clientID, ok := s.getAuthenticatedClientID(c)
+	if !ok {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	resp, err := s.BankClient.GenerateTransactionPdf(ctx, &bankpb.GenerateTransactionPdfRequest{
+		ClientId: clientID,
+		Id:       uri.ID,
+		Type:     query.Type,
+	})
+	if err != nil {
+		writeGRPCError(c, err)
+		return
+	}
+
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, resp.FileName))
+	c.Data(http.StatusOK, "application/pdf", resp.Pdf)
 }

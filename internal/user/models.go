@@ -20,6 +20,15 @@ type (
 		Updated_at    time.Time `gorm:"column:updated_at;not null;autoUpdateTime"`
 	}
 
+	PaymentRecipient struct {
+		Id             int64     `gorm:"column:id;type:bigserial;not null;primaryKey"`
+		Client_id      int64     `gorm:"column:client_id;type:bigint;not null;references clients(id)"`
+		Name           string    `gorm:"column:name;type:varchar(127);not null"`
+		Account_number string    `gorm:"column:account_number;type:varchar(20);not null"`
+		Created_at     time.Time `gorm:"column:created_at;not null;autoCreateTime"`
+		Updated_at     time.Time `gorm:"column:updated_at;not null;autoUpdateTime"`
+	}
+
 	Employee struct {
 		Id            uint64    `gorm:"column:id;type:bigint;not null;primaryKey"`
 		First_name    string    `gorm:"column:first_name;type:varchar(100);not null"`
@@ -53,6 +62,10 @@ type (
 
 func (Client) TableName() string {
 	return "clients"
+}
+
+func (PaymentRecipient) TableName() string {
+	return "payment_recipients"
 }
 
 func (Employee) TableName() string {
