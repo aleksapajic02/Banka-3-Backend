@@ -321,7 +321,7 @@ message ListClientTranasctionsRequest {
 }
 
 message ListClientTransactionsResponse {
-  repeated Transaction transactions = 1;
+  repeated ClientTransaction transactions = 1;
 }
 
 message Loan {
