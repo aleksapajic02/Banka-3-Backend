@@ -181,6 +181,12 @@ type blockCardURI struct {
 	CardID int64 `uri:"id" binding:"required"`
 }
 
+type conversionRequest struct {
+	FromCurrency string  `json:"from_currency" binding:"required"`
+	ToCurrency   string  `json:"to_currency" binding:"required"`
+	Amount       float64 `json:"amount" binding:"required,gt=0"`
+}
+
 type paymentRequest struct {
 	SenderAccount    string `json:"sender_account" binding:"required"`
 	RecipientAccount string `json:"recipient_account" binding:"required"`
