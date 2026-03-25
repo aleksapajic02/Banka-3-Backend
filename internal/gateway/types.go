@@ -207,6 +207,10 @@ type conversionRequest struct {
 	Amount       float64 `json:"amount" binding:"required,gt=0"`
 }
 
+type TOTPSetupConfirmRequest struct {
+	Code string `json:"code" binding:"required"`
+}
+
 type paymentRequest struct {
 	SenderAccount    string `json:"sender_account" binding:"required"`
 	RecipientAccount string `json:"recipient_account" binding:"required"`
