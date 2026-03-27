@@ -93,6 +93,8 @@ func (emp Employee) toProtobuf() *userpb.GetEmployeeResponse {
 
 func (s *Server) GetEmployeeByEmail(_ context.Context, req *userpb.GetEmployeeByEmailRequest) (*userpb.GetEmployeeResponse, error) {
 	resp, err := s.getEmployeeByEmail(req.Email)
+	resp_, err_ := s.getEmployeeByAttribute("email", req.Email)
+	log.Println("GetEmployeeByEmail server","Old: ", resp, err, "New", resp_, err_)
 	if err != nil {
 		return nil, err
 	}
@@ -101,6 +103,8 @@ func (s *Server) GetEmployeeByEmail(_ context.Context, req *userpb.GetEmployeeBy
 
 func (s *Server) GetEmployeeById(_ context.Context, req *userpb.GetEmployeeByIdRequest) (*userpb.GetEmployeeResponse, error) {
 	resp, err := s.getEmployeeById(req.Id)
+	resp_, err_ := s.getEmployeeByAttribute("id", req.Id)
+	log.Println("GetEmployeeById server", "Old", resp, err, "New", resp_, err_)
 	if err != nil {
 		return nil, err
 	}
@@ -130,11 +134,17 @@ func (s *Server) GetEmployees(_ context.Context, req *userpb.GetEmployeesRequest
 			Active:      emp.Active,
 		}
 	}
+	restrictions := user_restrictions{"first_name": req.FirstName, "last_name": req.LastName, "email": req.Email, "position": req.Position}
+
 	employees, err := s.GetAllEmployees(&req.Email, &req.FirstName, &req.LastName, &req.Position)
+	employees_, err_ := GetAllUsersFromModel(Employee{}, s, restrictions)
 	if err != nil {
 		log.Printf("Error in retrieving employees: %s", err.Error())
 		return nil, status.Error(codes.Internal, "Failed to retrieve employees")
 	}
+
+	log.Println("New function: ", employees_, err_)
+	log.Println("Old function: ", employees, err)
 	var employee_responses []*userpb.GetEmployeesResponse_Employee
 	for _, emp := range employees {
 		employee_responses = append(employee_responses, map_func(emp))
@@ -198,6 +208,10 @@ func mapClientToProto(client Client) *userpb.Client {
 
 func (s *Server) GetClients(_ context.Context, req *userpb.GetClientsRequest) (*userpb.GetClientsResponse, error) {
 	clients, err := s.GetAllClients(strings.TrimSpace(req.FirstName), strings.TrimSpace(req.LastName), strings.TrimSpace(req.Email))
+
+	clients_, err_ := GetAllUsersFromModel(Client{}, s, user_restrictions{"first_name":strings.TrimSpace(req.FirstName), "last_name":strings.TrimSpace(req.LastName), "email":strings.TrimSpace(req.Email)})
+
+	log.Println("Old: ", clients, err, "New: ", clients_, err_)
 	if err != nil {
 		log.Printf("Error in retrieving clients: %s", err.Error())
 		return nil, status.Error(codes.Internal, "Failed to retrieve clients")
@@ -218,16 +232,16 @@ func (s *Server) UpdateClient(_ context.Context, req *userpb.UpdateClientRequest
 	if strings.TrimSpace(req.Gender) != "" && req.Gender != "M" && req.Gender != "F" {
 		return nil, status.Error(codes.InvalidArgument, "Gender must be one of M or F")
 	}
-
-	_, err := s.GetClientByID(req.Id)
-	if err != nil {
-		switch {
-		case errors.Is(err, ErrClientNotFound):
-			return nil, status.Error(codes.NotFound, "client not found")
-		default:
-			return nil, status.Error(codes.Internal, "client lookup failed")
-		}
-	}
+	// Is this redundant, does not UpdateClientRecord already fail if client is not present
+	// _, err := s.GetClientByID(req.Id)
+	// if err != nil {
+	// 	switch {
+	// 	case errors.Is(err, ErrClientNotFound):
+	// 		return nil, status.Error(codes.NotFound, "client not found")
+	// 	default:
+	// 		return nil, status.Error(codes.Internal, "client lookup failed")
+	// 	}
+	// }
 
 	client := Client{
 		Id:           uint64(req.Id),
@@ -242,7 +256,7 @@ func (s *Server) UpdateClient(_ context.Context, req *userpb.UpdateClientRequest
 		client.Date_of_birth = time.Unix(req.DateOfBirth, 0)
 	}
 
-	err = s.UpdateClientRecord(&client)
+	err := s.UpdateClientRecord(&client)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrClientNotFound):
