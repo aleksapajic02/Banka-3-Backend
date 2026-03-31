@@ -421,6 +421,14 @@ func (s *Server) EnableTOTP(tx *sql.Tx, id uint64, tempSecret string) error {
 }
 
 func (s *TOTPServer) InsertGeneratedCodes(tx *sql.Tx, id uint64, codes []string) error {
+	_, err := tx.Exec(`
+		DELETE FROM backup_codes
+		WHERE client_id = $1
+	`, id)
+	if err != nil {
+		return err
+	}
+
 	query := "INSERT INTO backup_codes (client_id, token) VALUES"
 	values := []any{}
 	paramIdx := 1
