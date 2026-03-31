@@ -9,13 +9,33 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	"github.com/RAF-SI-2025/Banka-3-Backend/gen/notification"
 	"github.com/RAF-SI-2025/Banka-3-Backend/gen/user"
 	internalUser "github.com/RAF-SI-2025/Banka-3-Backend/internal/user"
 )
+
+type Connections struct {
+	notificationClient notification.NotificationServiceClient
+}
+
+func connect() (*Connections, error) {
+	notificationAddr := os.Getenv("NOTIFICATION_GRPC_ADDR")
+	if notificationAddr == "" {
+		notificationAddr = "notification:50051"
+	}
+	notificationConn, err := grpc.NewClient(notificationAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	return &Connections{
+		notificationClient: notification.NewNotificationServiceClient(notificationConn),
+	}, nil
+}
 
 func connect_to_db_gorm() *gorm.DB {
 	dsn := os.Getenv("DATABASE_URL")
@@ -52,6 +72,11 @@ func main() {
 	log.Println("connected to database...")
 	defer func() { _ = db.Close() }()
 
+	connections, err := connect()
+	if err != nil {
+		log.Fatalf("couldn't connect to serive")
+	}
+
 	accessJwtSecret, accessSecretSet := os.LookupEnv("ACCESS_JWT_SECRET")
 	refreshJwtSecret, refreshSecretSet := os.LookupEnv("REFRESH_JWT_SECRET")
 	if !accessSecretSet || !refreshSecretSet {
@@ -59,6 +84,7 @@ func main() {
 	}
 
 	userService := internalUser.NewServer(accessJwtSecret, refreshJwtSecret, db, gorm_db)
+	totpService := internalUser.NewTotpServer(db, connections.notificationClient)
 
 	srv := grpc.NewServer()
 	user.RegisterUserServiceServer(srv, userService)

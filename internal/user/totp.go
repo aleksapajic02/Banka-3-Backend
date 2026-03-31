@@ -13,11 +13,26 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	notificationpb "github.com/RAF-SI-2025/Banka-3-Backend/gen/notification"
 	userpb "github.com/RAF-SI-2025/Banka-3-Backend/gen/user"
 )
 
-func (s *Server) VerifyCode(_ context.Context, req *userpb.VerifyCodeRequest) (*userpb.VerifyCodeResponse, error) {
+type TOTPServer struct {
+	userpb.UnimplementedTOTPServiceServer
+	db                  *sql.DB
+	notificationService notificationpb.NotificationServiceClient
+}
+
+func NewTotpServer(database *sql.DB, notif notificationpb.NotificationServiceClient) *TOTPServer {
+	return &TOTPServer{
+		db:                  database,
+		notificationService: notif,
+	}
+}
+
+func (s *TOTPServer) VerifyCode(_ context.Context, req *userpb.VerifyCodeRequest) (*userpb.VerifyCodeResponse, error) {
 	client, err := getUserByAttribute(Client{}, s, "email", req.Email)
+	userId = client.Id
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
 			return nil, status.Error(codes.NotFound, err.Error())
