@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"sort"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -215,13 +216,24 @@ func (s *Server) RevokeRefreshTokensByEmail(tx *sql.Tx, email string) error {
 
 func GetAllUsersFromModel[T Client | Employee](user T, s *Server, constraints user_restrictions) ([]T, error) {
 	add_constraints := func(query *gorm.DB, restrictions user_restrictions) *gorm.DB {
-		for key, value := range restrictions {
-			if restrictions[key] != "" {
+		keys := make([]string, 0, len(restrictions))
+		for k := range restrictions {
+			keys = append(keys, k)
+		}
+
+		sort.Strings(keys)
+		for _, key := range keys {
+			value := restrictions[key]
+			if value == "" {
+				continue
+			}
+
+			if key != "" {
 				switch key {
 				case "email", "position":
 					query = query.Where(key+" = ?", value)
 				default:
-					query = query.Where(key+" ILIKE ?", "%"+value+"%")
+					query = query.Where(key+" ILIKE ?", value)
 				}
 			}
 		}
@@ -262,13 +274,13 @@ func create_user_from_model[T Client | Employee](user T, s *Server) error {
 	return nil
 }
 
-func getUserByAttribute[T Client | Employee](user T, s *Server, attribute_name string, attribute_value any) (*T, error) {
+func getUserByAttribute[T Client | Employee](user T, gorm *gorm.DB, attribute_name string, attribute_value any) (*T, error) {
 	var ret T
 	var err error
 	if reflect.TypeOf(any(user)) == reflect.TypeFor[Employee]() {
-		err = s.db_gorm.Preload("Permissions").Where(attribute_name+" = ?", attribute_value).First(&ret).Error
+		err = gorm.Preload("Permissions").Where(attribute_name+" = ?", attribute_value).First(&ret).Error
 	} else {
-		err = s.db_gorm.Model(&user).Where(attribute_name+" = ?", attribute_value).First(&ret).Error
+		err = gorm.Model(&user).Where(attribute_name+" = ?", attribute_value).First(&ret).Error
 	}
 	if err != nil {
 		log.Println("Error from getEmployeeByAttribute: ", err)
@@ -308,7 +320,7 @@ func updateUserRecord[T Client | Employee](user T, s *Server) (*T, error) {
 		return perms.Id
 	}
 
-	var result *gorm.DB
+	var result *gorm.DB = s.db_gorm
 	switch any(user).(type) {
 	case Client:
 		if userExists(user, s) {

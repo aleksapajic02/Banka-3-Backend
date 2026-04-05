@@ -114,7 +114,7 @@ func (client Client) toProtobuff() *userpb.Client {
 }
 
 func (s *Server) GetEmployeeByEmail(_ context.Context, req *userpb.GetEmployeeByEmailRequest) (*userpb.GetEmployeeResponse, error) {
-	resp, err := getUserByAttribute(Employee{}, s, "email", req.Email)
+	resp, err := getUserByAttribute(Employee{}, s.db_gorm, "email", req.Email)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Error(codes.NotFound, "employee not found")
@@ -125,7 +125,7 @@ func (s *Server) GetEmployeeByEmail(_ context.Context, req *userpb.GetEmployeeBy
 }
 
 func (s *Server) GetEmployeeById(_ context.Context, req *userpb.GetEmployeeByIdRequest) (*userpb.GetEmployeeResponse, error) {
-	resp, err := getUserByAttribute(Employee{}, s, "id", req.Id)
+	resp, err := getUserByAttribute(Employee{}, s.db_gorm, "id", req.Id)
 	if err != nil {
 		return nil, err
 	}
