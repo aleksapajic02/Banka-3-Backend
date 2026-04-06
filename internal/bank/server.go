@@ -1530,7 +1530,7 @@ func (s *Server) TransferMoneyBetweenAccounts(
 		PaymentCode:     "",
 		ReferenceNumber: "",
 		Purpose:         req.Description,
-		Status:          "realized",
+		Status:          string(transfer.Status),
 		Timestamp:       fmt.Sprintf("%d", time.Now().Unix()),
 	}
 
