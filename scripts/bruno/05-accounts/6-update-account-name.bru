@@ -4,6 +4,11 @@ meta {
   seq: 6
 }
 
+script:pre-request {
+  const ts = Date.now();
+  bru.setEnvVar("uniqueAccountName", "My Main RSD Account " + ts);
+}
+
 patch {
   url: {{baseUrl}}/api/accounts/{{testAccountNumber}}/name
   body: json
@@ -16,7 +21,7 @@ headers {
 
 body:json {
   {
-    "name": "My Main RSD Account"
+    "name": "{{uniqueAccountName}}"
   }
 }
 
