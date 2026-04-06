@@ -88,10 +88,10 @@ func SetupApi(router *gin.Engine, server *Server) {
 
 	accounts := api.Group("/accounts", auth)
 	{
-		accounts.POST("", server.CreateAccount)
-		accounts.GET("", server.GetAccounts)
-		accounts.GET("/:accountNumber", server.GetAccountByNumber)
-		accounts.PATCH("/:accountNumber/name", server.UpdateAccountName)
+		accounts.POST("", auth, server.CreateAccount)
+		accounts.GET("", auth, server.GetAccounts)
+		accounts.GET("/:accountNumber", auth, server.GetAccountByNumber)
+		accounts.PATCH("/:accountNumber/name", auth, server.UpdateAccountName)
 		accounts.PATCH("/:accountNumber/limit", totp, server.UpdateAccountLimits)
 	}
 
