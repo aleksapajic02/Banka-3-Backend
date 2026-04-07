@@ -1191,6 +1191,16 @@ func (s *Server) ConfirmTransfer(transferID int64, verificationCode string) erro
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// helper za fail
+	fail := func(err error) error {
+		_ = tx.Rollback()
+		_, _ = s.database.Exec(
+			`UPDATE transfers SET status = 'rejected' WHERE transaction_id = $1`,
+			transferID,
+		)
+		return err
+	}
+
 	var t Transfer
 	err = tx.QueryRow(`
 		SELECT transaction_id, from_account, to_account, start_amount, end_amount, status
@@ -1201,60 +1211,91 @@ func (s *Server) ConfirmTransfer(transferID int64, verificationCode string) erro
 	}
 
 	if t.Status != "pending" {
-		return errors.New("transfer already processed")
+		return fail(errors.New("transfer already processed"))
 	}
 
-	// Fetch account currencies to determine if we need the bank intermediary
-	fromAcc, _ := s.GetAccountByNumberRecord(t.From_account)
-	toAcc, _ := s.GetAccountByNumberRecord(t.To_account)
+	fromAcc, err := s.GetAccountByNumberRecord(t.From_account)
+	if err != nil {
+		return fail(err)
+	}
+
+	toAcc, err := s.GetAccountByNumberRecord(t.To_account)
+	if err != nil {
+		return fail(err)
+	}
 
 	if fromAcc.Currency != toAcc.Currency {
-		// Multi-currency => Involve Bank Accounts
-		// We use the system email from seed.sql to find the bank's accounts
 		systemEmail := "system@banka3.rs"
 
-		// 1. Debit Client (Source Currency)
-		res, _ := tx.Exec(`UPDATE accounts SET balance = balance - $1 WHERE number = $2 AND balance >= $1`, t.Start_amount, t.From_account)
+		// 1. Debit client
+		res, err := tx.Exec(
+			`UPDATE accounts SET balance = balance - $1 WHERE number = $2 AND balance >= $1`,
+			t.Start_amount, t.From_account,
+		)
+		if err != nil {
+			return fail(err)
+		}
 		if aff, _ := res.RowsAffected(); aff == 0 {
-			return errors.New("insufficient funds")
+			return fail(errors.New("insufficient funds"))
 		}
 
-		// 2. Credit Bank (Source Currency)
-		_, err = tx.Exec(`UPDATE accounts SET balance = balance + $1 WHERE currency = $2 AND owner = (SELECT id FROM clients WHERE email = $3)`,
-			t.Start_amount, fromAcc.Currency, systemEmail)
+		// 2. Credit bank (source currency)
+		_, err = tx.Exec(`
+			UPDATE accounts SET balance = balance + $1
+			WHERE currency = $2 AND owner = (SELECT id FROM clients WHERE email = $3)
+		`, t.Start_amount, fromAcc.Currency, systemEmail)
 		if err != nil {
-			return err
+			return fail(err)
 		}
 
-		// 3. Debit Bank (Target Currency)
-		_, err = tx.Exec(`UPDATE accounts SET balance = balance - $1 WHERE currency = $2 AND owner = (SELECT id FROM clients WHERE email = $3)`,
-			t.End_amount, toAcc.Currency, systemEmail)
+		// 3. Debit bank (target currency)
+		_, err = tx.Exec(`
+			UPDATE accounts SET balance = balance - $1
+			WHERE currency = $2 AND owner = (SELECT id FROM clients WHERE email = $3)
+		`, t.End_amount, toAcc.Currency, systemEmail)
 		if err != nil {
-			return err
+			return fail(err)
 		}
 
-		// 4. Credit Client (Target Currency)
-		_, err = tx.Exec(`UPDATE accounts SET balance = balance + $1 WHERE number = $2`, t.End_amount, t.To_account)
+		// 4. Credit client
+		_, err = tx.Exec(`
+			UPDATE accounts SET balance = balance + $1 WHERE number = $2
+		`, t.End_amount, t.To_account)
 		if err != nil {
-			return err
+			return fail(err)
 		}
 
 	} else {
-		// Same currency: Standard direct transfer
-		res, _ := tx.Exec(`UPDATE accounts SET balance = balance - $1 WHERE number = $2 AND balance >= $1`, t.Start_amount, t.From_account)
-		if aff, _ := res.RowsAffected(); aff == 0 {
-			return errors.New("insufficient funds")
-		}
-		_, err = tx.Exec(`UPDATE accounts SET balance = balance + $1 WHERE number = $2`, t.Start_amount, t.To_account)
+		// same currency
+		res, err := tx.Exec(
+			`UPDATE accounts SET balance = balance - $1 WHERE number = $2 AND balance >= $1`,
+			t.Start_amount, t.From_account,
+		)
 		if err != nil {
-			return err
+			return fail(err)
+		}
+		if aff, _ := res.RowsAffected(); aff == 0 {
+			return fail(errors.New("insufficient funds"))
+		}
+
+		_, err = tx.Exec(
+			`UPDATE accounts SET balance = balance + $1 WHERE number = $2`,
+			t.Start_amount, t.To_account,
+		)
+		if err != nil {
+			return fail(err)
 		}
 	}
 
-	_, err = tx.Exec(`UPDATE transfers SET status = 'realized' WHERE transaction_id = $1`, t.Transaction_id)
+	// SUCCESS
+	_, err = tx.Exec(
+		`UPDATE transfers SET status = 'realized' WHERE transaction_id = $1`,
+		t.Transaction_id,
+	)
 	if err != nil {
-		return err
+		return fail(err)
 	}
+
 	return tx.Commit()
 }
 

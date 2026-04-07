@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS transfers (
     start_currency_id   BIGINT          REFERENCES currencies(id) ON UPDATE CASCADE ON DELETE RESTRICT,
     exchange_rate       DECIMAL(20,2),
     commission          BIGINT          NOT NULL,
-    status              VARCHAR(20)     NOT NULL DEFAULT 'pending' CHECK  (status IN ('pending', 'completed', 'rejected')),
+    status              VARCHAR(20)     NOT NULL DEFAULT 'pending' CHECK  (status IN ('realized', 'rejected', 'pending')),
     timestamp           TIMESTAMP       NOT NULL DEFAULT NOW()
 );
 
