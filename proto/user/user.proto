@@ -22,8 +22,9 @@ service UserService {
   rpc GetClients(GetClientsRequest) returns (GetClientsResponse);
   rpc UpdateClient(UpdateClientRequest) returns (UpdateClientResponse);
   rpc CreateEmployeeAccount(CreateEmployeeRequest) returns (GetEmployeeResponse);
-<<<<<<< HEAD
   rpc GetUserPermissions(GetUserPermissionsRequest) returns (GetUserPermissionsResponse);
+  rpc GetClientById(GetUserByIdRequest) returns (GetClientResponse);
+  rpc GetClientByEmail(GetUserByEmailRequest) returns (GetClientResponse);
 }
 
 message GetUserPermissionsRequest {
@@ -33,11 +34,6 @@ message GetUserPermissionsRequest {
 message GetUserPermissionsResponse {
   string role = 1;
   repeated string permissions = 2;
-=======
-
-  rpc GetClientById(GetUserByIdRequest) returns (GetClientResponse);
-  rpc GetClientByEmail(GetUserByEmailRequest) returns (GetClientResponse);
->>>>>>> 65c6755 (send email after bank account creation)
 }
 
 message DeleteEmployeeRequest {
