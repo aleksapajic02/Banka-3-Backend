@@ -243,7 +243,6 @@ func (s *Server) CreateAccountRecord(account Account) (*Account, error) {
 			account.Valid_until, account.Currency, account.Active, string(account.Owner_type),
 			string(account.Account_type), account.Maintainance_cost, dailyLimit, monthlyLimit,
 			account.Daily_expenditure, account.Monthly_expenditure,
-			account.CompanyName, account.RegistrationNumber, account.PIB, account.ActivityCode, account.Address,
 		)
 
 		created, err := s.scanAccount(row)
@@ -284,13 +283,6 @@ func (s *Server) scanAccount(row *sql.Row) (*Account, error) {
 	a.Monthly_limit = monthlyLimit.Int64
 	a.Daily_expenditure = dailyExp.Int64
 	a.Monthly_expenditure = monthlyExp.Int64
-
-	// Map NullString back to string
-	a.CompanyName = compName.String
-	a.RegistrationNumber = regNum.String
-	a.PIB = pib.String
-	a.ActivityCode = actCode.String
-	a.Address = addr.String
 
 	return &a, nil
 }
