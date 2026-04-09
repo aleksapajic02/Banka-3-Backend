@@ -90,7 +90,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     id                  BIGSERIAL       PRIMARY KEY,
     number              VARCHAR(20)     NOT NULL,
     name                VARCHAR(127)    NOT NULL,
-    owner               BIGINT          NOT NULL REFERENCES clients(id) ON DELETE CASCADE, -- cascade delete??
+    owner               BIGINT          NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    company_id          BIGINT          DEFAULT NULL REFERENCES companies(id) ON DELETE CASCADE,
     balance             BIGINT          NOT NULL DEFAULT 0,
     created_by          BIGINT          REFERENCES employees(id) ON DELETE SET NULL,
     created_at          DATE            NOT NULL DEFAULT CURRENT_DATE,
@@ -98,7 +99,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     currency            VARCHAR(8)      NOT NULL REFERENCES currencies(label) ON UPDATE CASCADE ON DELETE RESTRICT,
     active              BOOLEAN         NOT NULL DEFAULT FALSE,
     owner_type          owner_type      NOT NULL,
-    account_type        account_type   NOT NULL,
+    account_type        account_type    NOT NULL,
     maintainance_cost   BIGINT          NOT NULL,
     daily_limit         BIGINT,
     monthly_limit       BIGINT,
@@ -128,7 +129,7 @@ CREATE TABLE IF NOT EXISTS companies (
 );
 
 CREATE TYPE card_type AS ENUM ('debit', 'credit');
-CREATE TYPE card_status AS ENUM ('active', 'blocked', 'deactivated');
+CREATE TYPE card_status AS ENUM ('active', 'blocked');
 CREATE TYPE card_brand AS ENUM ('visa', 'mastercard', 'amex', 'dinacard');
 
 CREATE TABLE IF NOT EXISTS cards (
@@ -182,6 +183,9 @@ CREATE TABLE IF NOT EXISTS payments (
     timestamp           TIMESTAMP       NOT NULL DEFAULT NOW()
 );
 
+
+CREATE TYPE transfer_status AS ENUM ('pending', 'realized', 'rejected');
+
 CREATE TABLE IF NOT EXISTS transfers (
     transaction_id      BIGSERIAL       PRIMARY KEY,
     from_account        VARCHAR(20)     REFERENCES accounts(number),
@@ -191,7 +195,7 @@ CREATE TABLE IF NOT EXISTS transfers (
     start_currency_id   BIGINT          REFERENCES currencies(id) ON UPDATE CASCADE ON DELETE RESTRICT,
     exchange_rate       DECIMAL(20,2),
     commission          BIGINT          NOT NULL,
-    status              VARCHAR(20)     NOT NULL DEFAULT 'pending' CHECK  (status IN ('realized', 'rejected', 'pending')),
+    status              transfer_status  NOT NULL DEFAULT 'pending',
     timestamp           TIMESTAMP       NOT NULL DEFAULT NOW()
 );
 

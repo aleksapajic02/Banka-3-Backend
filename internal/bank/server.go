@@ -16,6 +16,8 @@ import (
 
 	bankpb "github.com/RAF-SI-2025/Banka-3-Backend/gen/bank"
 	exchangepb "github.com/RAF-SI-2025/Banka-3-Backend/gen/exchange"
+	notificationpb "github.com/RAF-SI-2025/Banka-3-Backend/gen/notification"
+	userpb "github.com/RAF-SI-2025/Banka-3-Backend/gen/user"
 	"github.com/go-pdf/fpdf"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -27,9 +29,11 @@ import (
 
 type Server struct {
 	bankpb.UnimplementedBankServiceServer
-	database        *sql.DB
-	db_gorm         *gorm.DB
-	ExchangeService exchangepb.ExchangeServiceClient
+	database            *sql.DB
+	db_gorm             *gorm.DB
+	ExchangeService     exchangepb.ExchangeServiceClient
+	NotificationService notificationpb.NotificationServiceClient
+	UserService         userpb.UserServiceClient
 }
 
 func NewServer(database *sql.DB, gorm_db *gorm.DB) (*Server, error) {
@@ -42,10 +46,30 @@ func NewServer(database *sql.DB, gorm_db *gorm.DB) (*Server, error) {
 		return nil, err
 	}
 
+	notificationAddr := os.Getenv("NOTIFICATION_GRPC_ADDR")
+	if notificationAddr == "" {
+		notificationAddr = "notification:50051"
+	}
+	notificationConn, err := grpc.NewClient(notificationAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+
+	userAddr := os.Getenv("USER_GRPC_ADDR")
+	if userAddr == "" {
+		userAddr = "user:50051"
+	}
+	userConn, err := grpc.NewClient(userAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+
 	return &Server{
-		database:        database,
-		db_gorm:         gorm_db,
-		ExchangeService: exchangepb.NewExchangeServiceClient(exchangeConn),
+		database:            database,
+		db_gorm:             gorm_db,
+		ExchangeService:     exchangepb.NewExchangeServiceClient(exchangeConn),
+		NotificationService: notificationpb.NewNotificationServiceClient(notificationConn),
+		UserService:         userpb.NewUserServiceClient(userConn),
 	}, nil
 }
 
@@ -396,22 +420,73 @@ func (s *Server) GetCards(ctx context.Context, _ *bankpb.GetCardsRequest) (*bank
 	}, nil
 }
 
-func (s *Server) BlockCard(_ context.Context, req *bankpb.BlockCardRequest) (*bankpb.BlockCardResponse, error) {
-	var cardID int64
+func (s *Server) BlockCard(ctx context.Context, req *bankpb.BlockCardRequest) (*bankpb.BlockCardResponse, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "metadata missing")
+	}
 
-	if req.CardNumber != "" {
-		card, err := s.GetCardByNumberRecord(req.CardNumber)
-		if err != nil {
-			return &bankpb.BlockCardResponse{Success: false}, status.Error(codes.NotFound, "card not found")
-		}
-		cardID = card.Id
-	} else {
+	emails := md.Get("user-email")
+	if len(emails) == 0 || strings.TrimSpace(emails[0]) == "" {
+		return nil, status.Error(codes.Unauthenticated, "email missing in metadata")
+	}
+	userEmail := emails[0]
+
+	isEmployee, err := s.IsEmployeeByEmail(userEmail)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to resolve caller")
+	}
+
+	if req.CardNumber == "" {
 		return nil, status.Error(codes.InvalidArgument, "card_number is required")
 	}
 
-	err := s.BlockCardRecord(cardID)
+	card, err := s.GetCardByNumberRecord(req.CardNumber)
 	if err != nil {
 		return &bankpb.BlockCardResponse{Success: false}, status.Error(codes.NotFound, "card not found")
+	}
+
+	currentStatus, err := s.GetCardStatus(card.Id)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to read card status")
+	}
+
+	isCurrentlyBlocked := currentStatus == Blocked
+
+	// only employees can unblock
+	if isCurrentlyBlocked && !isEmployee {
+		return nil, status.Error(codes.PermissionDenied, "only employees can unblock cards")
+	}
+
+	var newStatus Card_status
+	if isCurrentlyBlocked {
+		newStatus = Active
+	} else {
+		newStatus = Blocked
+	}
+
+	err = s.UpdateCardStatus(card.Id, newStatus)
+	if err != nil {
+		return &bankpb.BlockCardResponse{Success: false}, status.Error(codes.Internal, "failed to update card status")
+	}
+
+	// Send email logic:
+
+	// card ID -> account ID
+	accountID, err := s.GetAccountIDByCardID(card.Id)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to resolve account")
+	}
+
+	// account ID -> owner email
+	clientEmail, err := s.getClientEmailByAccountID(accountID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to resolve client email")
+	}
+
+	err = s.sendCardBlockedEmail(ctx, clientEmail, newStatus == Blocked)
+	if err != nil {
+		return nil, err
 	}
 
 	return &bankpb.BlockCardResponse{Success: true}, nil
@@ -1100,99 +1175,6 @@ func (s *Server) GenerateTransactionPdf(
 	}, nil
 }
 
-func validateCreateAccountInput(name string, owner int64, currency string, ownerType string, accountType string, maintainanceCost int64, dailyLimit int64, monthlyLimit int64, createdBy int64, validUntil int64) error {
-	if strings.TrimSpace(name) == "" {
-		return status.Error(codes.InvalidArgument, "name is required")
-	}
-	if owner <= 0 {
-		return status.Error(codes.InvalidArgument, "owner must be greater than zero")
-	}
-	if createdBy <= 0 {
-		return status.Error(codes.InvalidArgument, "created_by must be greater than zero")
-	}
-	if strings.TrimSpace(currency) == "" {
-		return status.Error(codes.InvalidArgument, "currency is required")
-	}
-	if ownerType != string(Personal) && ownerType != string(Business) {
-		return status.Error(codes.InvalidArgument, "owner_type must be one of personal or business")
-	}
-	if accountType != string(Checking) && accountType != string(Foreign) {
-		return status.Error(codes.InvalidArgument, "account_type must be one of checking or foreign")
-	}
-	if maintainanceCost < 0 {
-		return status.Error(codes.InvalidArgument, "maintainance_cost must be greater than or equal to zero")
-	}
-	if dailyLimit < 0 {
-		return status.Error(codes.InvalidArgument, "daily_limit must be greater than or equal to zero")
-	}
-	if monthlyLimit < 0 {
-		return status.Error(codes.InvalidArgument, "monthly_limit must be greater than or equal to zero")
-	}
-	if validUntil != 0 && !time.Unix(validUntil, 0).After(time.Now()) {
-		return status.Error(codes.InvalidArgument, "valid_until must be in the future")
-	}
-	return nil
-}
-
-func (s *Server) CreateAccount(_ context.Context, req *bankpb.CreateAccountRequest) (*bankpb.CreateAccountResponse, error) {
-	name := strings.TrimSpace(req.Name)
-	currency := strings.TrimSpace(req.Currency)
-	ownerType := strings.TrimSpace(strings.ToLower(req.OwnerType))
-	accountType := strings.TrimSpace(strings.ToLower(req.AccountType))
-
-	if err := validateCreateAccountInput(
-		name,
-		req.Owner,
-		currency,
-		ownerType,
-		accountType,
-		req.MaintainanceCost,
-		req.DailyLimit,
-		req.MonthlyLimit,
-		req.CreatedBy,
-		req.ValidUntil,
-	); err != nil {
-		return nil, err
-	}
-
-	account := Account{
-		Name:              name,
-		Owner:             req.Owner,
-		Currency:          currency,
-		Owner_type:        owner_type(ownerType),
-		Account_type:      account_type(accountType),
-		Maintainance_cost: req.MaintainanceCost,
-		Daily_limit:       req.DailyLimit,
-		Monthly_limit:     req.MonthlyLimit,
-		Created_by:        req.CreatedBy,
-	}
-	if req.ValidUntil != 0 {
-		account.Valid_until = time.Unix(req.ValidUntil, 0)
-	}
-
-	created, err := s.CreateAccountRecord(account)
-	if err != nil {
-		switch {
-		case errors.Is(err, ErrAccountOwnerNotFound):
-			return nil, status.Error(codes.InvalidArgument, "owner does not exist")
-		case errors.Is(err, ErrAccountCreatorNotFound):
-			return nil, status.Error(codes.InvalidArgument, "creator does not exist")
-		case errors.Is(err, ErrAccountCurrencyNotFound):
-			return nil, status.Error(codes.InvalidArgument, "currency does not exist")
-		case errors.Is(err, ErrAccountNumberGenerationFailed):
-			return nil, status.Error(codes.Internal, "account number generation failed")
-		default:
-			return nil, status.Error(codes.Internal, "account creation failed")
-		}
-	}
-
-	return &bankpb.CreateAccountResponse{
-		Valid:         true,
-		AccountNumber: created.Number,
-		Error:         "",
-	}, nil
-}
-
 func parseLoanType(value string) (loan_type, error) {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
 	case "GOTOVINSKI":
@@ -1548,7 +1530,7 @@ func (s *Server) TransferMoneyBetweenAccounts(
 		PaymentCode:     "",
 		ReferenceNumber: "",
 		Purpose:         req.Description,
-		Status:          "realized",
+		Status:          string(transfer.Status),
 		Timestamp:       fmt.Sprintf("%d", time.Now().Unix()),
 	}
 

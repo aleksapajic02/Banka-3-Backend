@@ -9,7 +9,7 @@ type (
 	owner_type          string
 	account_type        string
 	card_type           string
-	card_status         string
+	Card_status         string
 	loan_type           string
 	loan_status         string
 	loan_request_status string
@@ -17,6 +17,7 @@ type (
 	installment_status  string
 	employment_status   string
 	card_brand          string
+	Transfer_status     string
 
 	// Note, unlike type aliease these are all destinct types, only
 	// their underlying type is string.
@@ -41,9 +42,8 @@ const (
 	Credit card_type = "credit"
 
 	// card_status enum
-	Active      card_status = "active"
-	Blocked     card_status = "blocked"
-	Deactivated card_status = "deactivated"
+	Active  Card_status = "active"
+	Blocked Card_status = "blocked"
 
 	// loan_type enum
 	Cash        loan_type = "cash"
@@ -81,6 +81,10 @@ const (
 	mastercard card_brand = "mastercard"
 	amex       card_brand = "amex"
 	dinacard   card_brand = "dinacard"
+
+	pending  Transfer_status = "pending"
+	realized Transfer_status = "realized"
+	rejected Transfer_status = "rejected"
 )
 
 type (
@@ -108,6 +112,7 @@ type (
 		Number              string       `gorm:"column:number;type:varchar(20);not null;unique"`
 		Name                string       `gorm:"column:name;type:varchar(127);not null"`
 		Owner               int64        `gorm:"column:owner;type:bigint;not null;references clients(id)"`
+		CompanyID           *int64       `gorm:"column:company_id;type:bigint;default:null;constraint:OnDelete:CASCADE;references:companies(id)"` // Ovde se koristi pointer jer moze da bude NULL
 		Balance             int64        `gorm:"column:balance;type:bigint;not null;default 0"`
 		Created_by          int64        `gorm:"column:created_by;type:bigint;not null;references employees(id)"`
 		Created_at          time.Time    `gorm:"column:created_at;not null;autoCreateTime"`
@@ -150,7 +155,7 @@ type (
 		Account_number string      `gorm:"column:account_number;type:varchar(20);references accounts(number)"`
 		Cvv            string      `gorm:"column:cvv;type:varchar(7);not null"`
 		Card_limit     int64       `gorm:"column:card_limit;type:bigint"`
-		Status         card_status `gorm:"column:status;type:card_status;not null;default 'active'"`
+		Status         Card_status `gorm:"column:status;type:card_status;not null;default 'active'"`
 	}
 
 	CardRequest struct {
@@ -191,16 +196,16 @@ type (
 	}
 
 	Transfer struct {
-		Transaction_id    int64     `gorm:"column:transaction_id;type:bigserial;not null;primaryKey"`
-		From_account      string    `gorm:"column:from_account;type:varchar(20);references accounts(number)"`
-		To_account        string    `gorm:"column:to_account;type:varchar(20);references accounts(number)"`
-		Start_amount      int64     `gorm:"column:start_amount;type:bigint;not null"`
-		End_amount        int64     `gorm:"column:end_amount;type:bigint;not null"`
-		Start_currency_id int64     `gorm:"column:start_currency_id;type:bigint;references currencies(id)"`
-		Exchange_rate     float64   `gorm:"column:exchange_rate;type:decimal(20,2)"`
-		Commission        int64     `gorm:"column:commission;type:bigint;not null"`
-		Timestamp         time.Time `gorm:"column:timestamp;not null;autoCreateTime"`
-		Status            string    `gorm:"column:status;type:varchar(20);not null"`
+		Transaction_id    int64           `gorm:"column:transaction_id;type:bigserial;not null;primaryKey"`
+		From_account      string          `gorm:"column:from_account;type:varchar(20);references accounts(number)"`
+		To_account        string          `gorm:"column:to_account;type:varchar(20);references accounts(number)"`
+		Start_amount      int64           `gorm:"column:start_amount;type:bigint;not null"`
+		End_amount        int64           `gorm:"column:end_amount;type:bigint;not null"`
+		Start_currency_id int64           `gorm:"column:start_currency_id;type:bigint;references currencies(id)"`
+		Exchange_rate     float64         `gorm:"column:exchange_rate;type:decimal(20,2)"`
+		Commission        int64           `gorm:"column:commission;type:bigint;not null"`
+		Timestamp         time.Time       `gorm:"column:timestamp;not null;autoCreateTime"`
+		Status            Transfer_status `gorm:"column:status;type:varchar(20);not null"`
 	}
 
 	PaymentCode struct {

@@ -3,6 +3,7 @@ package notification
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"html/template"
 	"log"
 	"net/smtp"
@@ -17,6 +18,30 @@ type EmailSender interface {
 }
 
 type SMTPSender struct{}
+type StdoutSender struct{}
+type NoopSender struct{}
+
+func (s *NoopSender) Send(to []string, subject string, body string) error {
+	return nil
+}
+
+func (s *StdoutSender) Send(to []string, subject string, body string) error {
+	for _, r := range to {
+		_, err := fmt.Printf("===================================\n")
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Printf("Recepient: %s | Subject: %s\n", r, subject)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Print(body)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func (s *SMTPSender) Send(to []string, subject string, body string) error {
 	auth := smtp.PlainAuth(
@@ -230,6 +255,28 @@ func (s *Server) SendCardCreatedEmail(_ context.Context, req *notification.CardC
 	return &notification.SuccessResponse{Successful: true}, nil
 }
 
+func (s *Server) SendCardBlockedEmail(_ context.Context, req *notification.CardBlockedReqest) (*notification.SuccessResponse, error) {
+	to := strings.Split(req.ToAddr, ",")
+
+	templ, err := template.ParseFiles("templates/card_blocked.html")
+	if err != nil {
+		return &notification.SuccessResponse{Successful: false}, nil
+	}
+
+	var rendered bytes.Buffer
+	if err := templ.Execute(&rendered, req); err != nil {
+		return &notification.SuccessResponse{Successful: false}, nil
+	}
+
+	subject := "Status Vaše kartice je ažuriran"
+	err = s.sender.Send(to, subject, rendered.String())
+	if err != nil {
+		return &notification.SuccessResponse{Successful: false}, nil
+	}
+
+	return &notification.SuccessResponse{Successful: true}, nil
+}
+
 func (s *Server) SendTOTPDisableEmail(_ context.Context, req *notification.SendTOTPDisableEmailRequest) (*notification.SuccessResponse, error) {
 	to := strings.Split(req.Email, ",")
 	templ, err := template.ParseFiles("templates/disable_totp.html")
@@ -267,6 +314,24 @@ func (s *Server) SendClientSetPasswordEmail(_ context.Context, req *notification
 	err = s.sender.Send(to, "Set your Banka 3 password", rendered.String())
 	if err != nil {
 		log.Println("Couldn't send client set password email:", err)
+func (s *Server) SendBankAccountCreationEmail(_ context.Context, req *notification.SendBankAccountCreationEmailRequest) (*notification.SuccessResponse, error) {
+	println("sneding mail to " + req.ToAddr)
+	to := strings.Split(req.ToAddr, ",")
+	templ, err := template.ParseFiles("templates/bank_account_created.html")
+	if err != nil {
+		log.Printf("error in reading template :%v", err)
+		return &notification.SuccessResponse{Successful: false}, nil
+	}
+
+	var rendered bytes.Buffer
+	if err := templ.Execute(&rendered, req); err != nil {
+		log.Printf("error in filling template :%v", err)
+		return &notification.SuccessResponse{Successful: false}, nil
+	}
+
+	err = s.sender.Send(to, "Bank account created", rendered.String())
+	if err != nil {
+		log.Printf("error in sending email :%v", err)
 		return &notification.SuccessResponse{Successful: false}, nil
 	}
 	return &notification.SuccessResponse{Successful: true}, nil
