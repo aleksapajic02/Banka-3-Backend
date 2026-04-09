@@ -1445,13 +1445,21 @@ func (s *Server) CreateLoanRequest(_ context.Context, req *bankpb.CreateLoanRequ
 }
 
 func (s *Server) PayoutMoneyToOtherAccount(
-	_ context.Context,
+	ctx context.Context,
 	req *bankpb.PaymentRequest,
 ) (*bankpb.PaymentResponse, error) {
 
+	email, err := s.getEmailFromMetadata(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, "failed to get email from metadata")
+	}
+	_, err = s.getOwnedAccountByNumber(email, req.SenderAccount)
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, "signed user is not an owner of the sender account")
+	}
+
 	payment, currency, err := s.ProcessPayment(req.SenderAccount, req.RecipientAccount,
 		req.Amount, req.PaymentCode, req.ReferenceNumber, req.Purpose)
-
 	if err != nil {
 		log.Printf("bank/server.go: payment failed: %v", err)
 		switch {
