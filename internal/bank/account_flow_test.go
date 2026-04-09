@@ -9,6 +9,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	bankpb "github.com/RAF-SI-2025/Banka-3-Backend/gen/bank"
+	notificationpb "github.com/RAF-SI-2025/Banka-3-Backend/gen/notification"
 	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,6 +20,10 @@ type timeArgument struct{}
 func (timeArgument) Match(v driver.Value) bool {
 	_, ok := v.(time.Time)
 	return ok
+}
+
+type testNotificationServer struct {
+	notificationpb.UnimplementedNotificationServiceServer
 }
 
 func TestCreateAccountSuccess(t *testing.T) {
