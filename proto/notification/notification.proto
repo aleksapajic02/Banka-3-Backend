@@ -16,7 +16,6 @@ service NotificationService {
   rpc SendClientSetPasswordEmail(ActivationMailRequest) returns (SuccessResponse);
   rpc SendCardBlockedEmail(CardBlockedReqest) returns (SuccessResponse);
 
-  rpc SendLoanPaymentFailedEmail(LoanPaymentFailedMailRequest) returns (SuccessResponse);
   rpc SendTOTPDisableEmail(SendTOTPDisableEmailRequest) returns (SuccessResponse);
 
   rpc SendBankAccountCreationEmail(SendBankAccountCreationEmailRequest) returns (SuccessResponse);
