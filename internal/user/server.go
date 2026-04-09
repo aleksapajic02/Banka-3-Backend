@@ -81,6 +81,19 @@ func NewServer(accessJwtSecret string, refreshJwtSecret string, conn *Connection
 	}
 }
 
+func (c Client) toProtobuf() *userpb.GetClientResponse {
+	return &userpb.GetClientResponse{
+		Id:          int64(c.Id),
+		FirstName:   c.First_name,
+		LastName:    c.Last_name,
+		BirthDate:   c.Date_of_birth.Unix(),
+		Gender:      c.Gender,
+		Email:       c.Email,
+		PhoneNumber: c.Phone_number,
+		Address:     c.Address,
+	}
+}
+
 func (emp Employee) toProtobuf() *userpb.GetEmployeeResponse {
 	permissions := make([]string, len(emp.Permissions))
 	for i, v := range emp.Permissions {
@@ -116,7 +129,7 @@ func (client Client) toProtobuff() *userpb.Client {
 	}
 }
 
-func (s *Server) GetEmployeeByEmail(_ context.Context, req *userpb.GetEmployeeByEmailRequest) (*userpb.GetEmployeeResponse, error) {
+func (s *Server) GetEmployeeByEmail(_ context.Context, req *userpb.GetUserByEmailRequest) (*userpb.GetEmployeeResponse, error) {
 	resp, err := getUserByAttribute(Employee{}, s.db_gorm, "email", req.Email)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -127,8 +140,27 @@ func (s *Server) GetEmployeeByEmail(_ context.Context, req *userpb.GetEmployeeBy
 	return resp.toProtobuf(), nil
 }
 
-func (s *Server) GetEmployeeById(_ context.Context, req *userpb.GetEmployeeByIdRequest) (*userpb.GetEmployeeResponse, error) {
+func (s *Server) GetEmployeeById(_ context.Context, req *userpb.GetUserByIdRequest) (*userpb.GetEmployeeResponse, error) {
 	resp, err := getUserByAttribute(Employee{}, s.db_gorm, "id", req.Id)
+	if err != nil {
+		return nil, err
+	}
+	return resp.toProtobuf(), nil
+}
+
+func (s *Server) GetClientByEmail(_ context.Context, req *userpb.GetUserByEmailRequest) (*userpb.GetClientResponse, error) {
+	resp, err := getUserByAttribute(Client{}, s.db_gorm, "email", req.Email)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Error(codes.NotFound, "employee not found")
+		}
+		return nil, status.Error(codes.Internal, "failed to get employee")
+	}
+	return resp.toProtobuf(), nil
+}
+
+func (s *Server) GetClientById(_ context.Context, req *userpb.GetUserByIdRequest) (*userpb.GetClientResponse, error) {
+	resp, err := getUserByAttribute(Client{}, s.db_gorm, "id", req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -176,6 +208,17 @@ func (s *Server) GetEmployees(_ context.Context, req *userpb.GetEmployeesRequest
 }
 
 func (s *Server) UpdateEmployee(ctx context.Context, req *userpb.UpdateEmployeeRequest) (*userpb.GetEmployeeResponse, error) {
+	if !req.Active {
+		existing, err := getUserByAttribute(Employee{}, s.db_gorm, "id", req.Id)
+		if err == nil && existing != nil {
+			for _, p := range existing.Permissions {
+				if p.Name == "admin" {
+					return nil, status.Error(codes.PermissionDenied, "cannot deactivate an admin")
+				}
+			}
+		}
+	}
+
 	var permissions []Permission
 	for _, perm := range req.Permissions {
 		// yes these are invalid. i don't care
@@ -549,7 +592,7 @@ func (s *Server) SetPasswordWithToken(ctx context.Context, req *userpb.SetPasswo
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	email, _, err := consumePasswordActionToken(tx, hashValue(token))
+	email, actionType, err := consumePasswordActionToken(tx, hashValue(token))
 	if err != nil {
 		if errors.Is(err, ErrInvalidPasswordActionToken) {
 			return nil, status.Error(codes.InvalidArgument, "invalid or expired token")
@@ -566,6 +609,12 @@ func (s *Server) SetPasswordWithToken(ctx context.Context, req *userpb.SetPasswo
 
 	if err := s.UpdatePasswordByEmail(tx, email, hashedPassword); err != nil {
 		return nil, status.Error(codes.Internal, "password update failed")
+	}
+
+	if actionType == passwordActionInitialSet {
+		if _, err := tx.Exec(`UPDATE employees SET active = true, updated_at = NOW() WHERE email = $1`, email); err != nil {
+			return nil, status.Error(codes.Internal, "employee activation failed")
+		}
 	}
 
 	if err := s.RevokeRefreshTokensByEmail(tx, email); err != nil {
